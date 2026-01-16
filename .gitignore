@@ -1,0 +1,6 @@
+/.direnv/
+/obj/
+*.boot
+*.so
+*.wo
+*.wpo
