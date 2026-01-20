@@ -2,7 +2,7 @@
 ;; FFI Code Generator - AST to Chez Scheme FFI
 ;; Generates foreign-procedure and foreign-struct definitions
 
-(library (c-tools codegen ffi)
+(library (c-tools codegen chez ffi)
   (export generate-ffi-code
           ast->ffi-type
           declaration->ffi-form)

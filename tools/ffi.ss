@@ -10,8 +10,10 @@
         (c-tools preprocess cpp)
         (c-tools parser c)
         (c-tools parser cpp)
-        (c-tools codegen ffi)
-        (c-tools codegen cpp-ffi)
+        (prefix (c-tools codegen chez ffi) chez:)
+        (prefix (c-tools codegen chez cpp-ffi) chez:)
+        (prefix (c-tools codegen racket ffi) racket:)
+        (prefix (c-tools codegen racket cpp-ffi) racket:)
         (c-tools effects files)
         (c-tools effects cpp core)
         (c-tools effects cpp macros)
@@ -56,23 +58,66 @@
                     (pretty-print ffi-code port)))
                 (pretty-print ffi-code))))))))
 
+(define (generate-racket-c-ffi filename lib-name output-file)
+  ;; Racket C FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-file filename)]
+                 [decls (parse-declarations tokens)]
+                 [ffi-code (racket:generate-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
+(define (generate-racket-cpp-ffi filename lib-name output-file)
+  ;; Racket C++ FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-cpp-file filename)]
+                 [decls (parse-cpp-declarations tokens)]
+                 [ffi-code (racket:generate-cpp-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
 ;;=======================================================================
 ;; CLI argument parsing
 
 (define (show-help)
   (display "Usage: ffi.ss [OPTIONS] HEADER_FILE\n")
   (display "\n")
-  (display "Generate Chez Scheme FFI bindings from C/C++ headers\n")
+  (display "Generate FFI bindings from C/C++ headers\n")
   (display "\n")
   (display "Options:\n")
   (display "  -x LANG        Force language mode (c or c++)\n")
   (display "  -l LIBNAME     Library name for FFI bindings\n")
   (display "  -o FILE        Output file (default: stdout)\n")
+  (display "  -t TARGET      Target platform (chez or racket, default: chez)\n")
+  (display "  --racket       Shorthand for -t racket\n")
   (display "  --help         Show this help message\n")
   (display "\n")
   (display "Examples:\n")
   (display "  ffi.ss mylib.h -l mylib -o bindings.sls\n")
-  (display "  ffi.ss -x c++ myclass.hpp -l myclass\n")
+  (display "  ffi.ss -x c++ myclass.hpp -l myclass --racket\n")
+  (display "  ffi.ss mylib.h -t racket -o bindings.rkt\n")
   (newline))
 
 (define (detect-language filename)
@@ -131,11 +176,12 @@
              [lang #f]
              [lib-name #f]
              [output-file #f]
-             [input-file #f])
+             [input-file #f]
+             [target 'chez])
     (cond
       [(null? args)
        (if input-file
-           (list lang lib-name output-file input-file)
+           (list lang lib-name output-file input-file target)
            (begin
              (display "Error: No input file specified\n")
              (show-help)
@@ -143,6 +189,25 @@
       [(string=? (car args) "--help")
        (show-help)
        (exit 0)]
+      [(string=? (car args) "--racket")
+       (loop (cdr args) lang lib-name output-file input-file 'racket)]
+      [(string=? (car args) "-t")
+       (if (null? (cdr args))
+           (begin
+             (display "Error: -t requires target argument\n")
+             (exit 1))
+           (let ([target-str (cadr args)])
+             (loop (cddr args)
+                   lang
+                   lib-name
+                   output-file
+                   input-file
+                   (cond
+                     [(string=? target-str "chez") 'chez]
+                     [(string=? target-str "racket") 'racket]
+                     [else (begin
+                             (display (format "Error: Unknown target: ~a\n" target-str))
+                             (exit 1))]))))]
       [(string=? (car args) "-x")
        (if (null? (cdr args))
            (begin
@@ -159,7 +224,8 @@
                              (exit 1))])
                    lib-name
                    output-file
-                   input-file)))]
+                   input-file
+                   target)))]
       [(string=? (car args) "-l")
        (if (null? (cdr args))
            (begin
@@ -169,7 +235,8 @@
                  lang
                  (cadr args)
                  output-file
-                 input-file))]
+                 input-file
+                 target))]
       [(string=? (car args) "-o")
        (if (null? (cdr args))
            (begin
@@ -179,13 +246,15 @@
                  lang
                  lib-name
                  (cadr args)
-                 input-file))]
+                 input-file
+                 target))]
       [(not input-file)
        (loop (cdr args)
              lang
              lib-name
              output-file
-             (car args))]
+             (car args)
+             target)]
       [else
        (display (format "Error: Unexpected argument: ~a\n" (car args)))
        (exit 1)])))
@@ -205,17 +274,25 @@
          [lib-name-arg (cadr parsed)]
          [output-file (caddr parsed)]
          [input-file (cadddr parsed)]
+         [target (car (cddddr parsed))]
          [lang (or lang-arg (detect-language input-file))]
          [lib-name (or lib-name-arg (derive-lib-name input-file))])
 
-    (display (format "Processing ~a as ~a (library: ~a)\n"
+    (display (format "Processing ~a as ~a (library: ~a, target: ~a)\n"
                     input-file
                     (if (eq? lang 'c++) "C++" "C")
-                    lib-name))
+                    lib-name
+                    target))
 
-    (if (eq? lang 'c++)
-        (generate-cpp-ffi input-file lib-name output-file)
-        (generate-c-ffi input-file lib-name output-file))
+    (case target
+      [(chez)
+       (if (eq? lang 'c++)
+           (generate-cpp-ffi input-file lib-name output-file)
+           (generate-c-ffi input-file lib-name output-file))]
+      [(racket)
+       (if (eq? lang 'c++)
+           (generate-racket-cpp-ffi input-file lib-name output-file)
+           (generate-racket-c-ffi input-file lib-name output-file))])
 
     (when output-file
       (display (format "Generated FFI bindings: ~a\n" output-file)))))

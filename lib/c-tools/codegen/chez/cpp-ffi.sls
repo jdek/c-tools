@@ -3,7 +3,7 @@
 ;; Generates foreign-procedure and foreign-struct definitions
 ;; Handles C++ namespaces, classes, and name mangling
 
-(library (c-tools codegen cpp-ffi)
+(library (c-tools codegen chez cpp-ffi)
   (export generate-cpp-ffi-code
           cpp-declaration->ffi-form)
   (import (rnrs base)
@@ -12,7 +12,7 @@
           (rnrs lists)
           (c-tools ast c)
           (c-tools ast cpp)
-          (c-tools codegen ffi)
+          (c-tools codegen chez ffi)
           (c-tools codegen mangle)
           (only (chezscheme) format set-car! set-cdr!))
 
