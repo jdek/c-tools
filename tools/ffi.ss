@@ -34,7 +34,7 @@
         (lambda ()
           (let* ([tokens (preprocess-file filename)]
                  [decls (parse-declarations tokens)]
-                 [ffi-code (generate-ffi-code decls lib-name)])
+                 [ffi-code (chez:generate-ffi-code decls lib-name)])
             (if output-file
                 (call-with-output-file output-file
                   (lambda (port)
@@ -51,7 +51,7 @@
         (lambda ()
           (let* ([tokens (preprocess-cpp-file filename)]
                  [decls (parse-cpp-declarations tokens)]
-                 [ffi-code (generate-cpp-ffi-code decls lib-name lib-name)])
+                 [ffi-code (chez:generate-cpp-ffi-code decls lib-name lib-name)])
             (if output-file
                 (call-with-output-file output-file
                   (lambda (port)
@@ -111,6 +111,7 @@
   (display "  -l LIBNAME     Library name for FFI bindings\n")
   (display "  -o FILE        Output file (default: stdout)\n")
   (display "  -t TARGET      Target platform (chez or racket, default: chez)\n")
+  (display "  --chez         Shorthand for -t chez\n")
   (display "  --racket       Shorthand for -t racket\n")
   (display "  --help         Show this help message\n")
   (display "\n")
@@ -189,6 +190,8 @@
       [(string=? (car args) "--help")
        (show-help)
        (exit 0)]
+      [(string=? (car args) "--chez")
+       (loop (cdr args) lang lib-name output-file input-file 'chez)]
       [(string=? (car args) "--racket")
        (loop (cdr args) lang lib-name output-file input-file 'racket)]
       [(string=? (car args) "-t")
