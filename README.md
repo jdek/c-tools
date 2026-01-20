@@ -177,7 +177,3 @@ export CHEZSCHEMELIBDIRS="/path/to/c-tools/lib:${CHEZSCHEMELIBDIRS}"
 - Create code analysis tools
 - Parse headers without full preprocessing
 - Generate documentation from headers
-
-## License
-
-See LICENSE file.
