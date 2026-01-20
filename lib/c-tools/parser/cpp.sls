@@ -241,6 +241,110 @@
           [else
            (parse-error "Expected operator")])))
 
+    ;;=======================================================================
+    ;; Declarator Parsing (ported from C parser for complex declarations)
+
+    ;; Parse declarator (name with type modifications)
+    ;; Returns (values name type) where name can be #f for abstract declarators
+    (define (parse-declarator base-type)
+      ;; Handle pointer prefix
+      (let ([type (parse-pointer-chain base-type)])
+        (let ([tok (peek)])
+          (cond
+            ;; Parenthesized declarator (function pointer or array of pointers)
+            [(is-punct? tok "(")
+             (parse-paren-declarator type)]
+
+            ;; Direct declarator (identifier)
+            [(is-identifier? tok)
+             (let ([name (token-value (advance!))])
+               (parse-declarator-suffix name type))]
+
+            ;; Abstract declarator (no name)
+            [else
+             (values #f type)]))))
+
+    ;; Parse pointer chain (***)
+    (define (parse-pointer-chain base-type)
+      (if (is-punct? (peek) "*")
+          (begin
+            (advance!)
+            (let ([quals (parse-cv-qualifiers)])
+              (let ([ptr (make-pointer-type base-type)])
+                (parse-pointer-chain
+                  (if (null? quals) ptr (make-qualified-type quals ptr))))))
+          base-type))
+
+    ;; Parse parenthesized declarator
+    (define (parse-paren-declarator outer-type)
+      (advance!)  ;; consume (
+      (let ([tok (peek)])
+        (cond
+          ;; Function pointer: (*name)
+          [(is-punct? tok "*")
+           (advance!)
+           (if (is-identifier? (peek))
+               (let ([name (token-value (advance!))])
+                 (expect-punct ")")
+                 ;; Now check for function suffix
+                 (if (is-punct? (peek) "(")
+                     ;; Function pointer
+                     (begin
+                       (advance!)
+                       (let-values ([(params variadic?) (parse-parameter-list)])
+                         (expect-punct ")")
+                         (let ([fn-type (make-function-type outer-type params variadic?)])
+                           (values name (make-pointer-type fn-type)))))
+                     ;; Just pointer
+                     (values name (make-pointer-type outer-type))))
+               (parse-error "Expected identifier after * in parenthesized declarator, got punctuator '('"))]
+
+          ;; Just grouping: (name)
+          [(is-identifier? tok)
+           (let ([name (token-value (advance!))])
+             (expect-punct ")")
+             (parse-declarator-suffix name outer-type))]
+
+          [else
+           (parse-error "Expected identifier or * in parenthesized declarator, got punctuator '('")])))
+
+    ;; Parse declarator suffix (arrays and functions)
+    (define (parse-declarator-suffix name type)
+      (let ([tok (peek)])
+        (cond
+          ;; Array suffix [size]
+          [(is-punct? tok "[")
+           (advance!)
+           (skip-to-bracket)
+           (expect-punct "]")
+           (parse-declarator-suffix name (make-array-type type #f))]
+
+          ;; Function suffix (params)
+          [(is-punct? tok "(")
+           (advance!)
+           (let-values ([(params variadic?) (parse-parameter-list)])
+             (expect-punct ")")
+             (values name (make-function-type type params variadic?)))]
+
+          ;; Done
+          [else
+           (values name type)])))
+
+    ;; Skip to closing bracket (array size expressions)
+    (define (skip-to-bracket)
+      (let loop ([depth 1])
+        (let ([tok (advance!)])
+          (cond
+            [(not tok) (parse-error "Unexpected end of input, got punctuator '('")]
+            [(is-punct? tok "[") (loop (+ depth 1))]
+            [(is-punct? tok "]")
+             (when (> depth 1)
+               (loop (- depth 1)))]
+            [else (loop depth)]))))
+
+    ;;=======================================================================
+    ;; Type Parsing
+
     ;; Parse type specifier
     (define (parse-type-specifier)
       (let ([tok (peek)])
@@ -281,8 +385,11 @@
           [(is-keyword? tok 'enum)
            (advance!)
            (maybe-keyword 'class)  ;; enum class
-           (let ([name (parse-qualified-name)])
-             (make-named-type 'enum name))]
+           (if (is-punct? (peek) "{")
+               ;; Anonymous enum - return generic enum type
+               (make-basic-type 'int)  ;; enums are ints for FFI purposes
+               (let ([name (parse-qualified-name)])
+                 (make-named-type 'enum name)))]
 
           ;; typename (in template context)
           [(is-keyword? tok 'typename)
@@ -414,6 +521,11 @@
           [(not tok) #f]
           [(eof-token? tok) #f]
 
+          ;; Empty declaration (standalone semicolon or closing brace)
+          [(or (is-punct? tok ";") (is-punct? tok "}"))
+           (advance!)
+           #f]
+
           ;; namespace
           [(is-keyword? tok 'namespace)
            (cons '() (parse-namespace))]
@@ -439,6 +551,12 @@
            ;; Could be struct definition or just struct type in declaration
            (if (is-struct-definition?)
                (cons '() (parse-class-definition 'struct))
+               (parse-function-or-variable))]
+
+          [(is-keyword? tok 'union)
+           ;; Could be union definition or just union type in declaration
+           (if (is-struct-definition?)  ;; reuse is-struct-definition? for union too
+               (cons '() (parse-class-definition 'union))
                (parse-function-or-variable))]
 
           ;; enum
@@ -471,10 +589,14 @@
     ;; Check if this is a struct/class definition
     (define (is-struct-definition?)
       (let ([tok1 (peek-ahead 1)])
-        (and (is-identifier? tok1)
-             (let ([tok2 (peek-ahead 2)])
-               (or (is-punct? tok2 "{")
-                   (is-punct? tok2 ":"))))))  ;; inheritance
+        (or
+          ;; Anonymous struct/union: next token is {
+          (is-punct? tok1 "{")
+          ;; Named struct/union: identifier followed by { or :
+          (and (is-identifier? tok1)
+               (let ([tok2 (peek-ahead 2)])
+                 (or (is-punct? tok2 "{")
+                     (is-punct? tok2 ":")))))))  ;; inheritance
 
     ;; Check if this is an enum definition
     (define (is-enum-definition?)
@@ -764,9 +886,16 @@
     (define (parse-typedef)
       (expect-keyword 'typedef)
       (let ([type (parse-type)])
-        (let ([name (token-value (expect-identifier))])
-          (expect-punct ";")
-          (make-typedef name type))))
+        ;; Use declarator parsing for complex types like function pointers
+        (let-values ([(name decl-type) (parse-declarator type)])
+          (if name
+              (begin
+                (expect-punct ";")
+                (make-typedef name decl-type))
+              ;; Fallback for simple typedef
+              (let ([simple-name (token-value (expect-identifier))])
+                (expect-punct ";")
+                (make-typedef simple-name type))))))
 
     ;; Parse function or variable declaration
     ;; Returns (cons specifiers decl) where specifiers is a list of symbols
@@ -801,49 +930,27 @@
           (let ([return-type (parse-type)])
         (let ([tok (peek)])
           (cond
-            ;; Possibly constructor or conversion operator
-            [(is-punct? tok "(")
-             ;; This is a constructor if return-type is a named-type matching class name
-             (if (and (in-class?!)
-                      (named-type? return-type)
-                      (let ([class-info (current-class!)])
-                        (and class-info
-                             (eq? (named-type-name return-type)
-                                  (cdr class-info)))))
-                 ;; Constructor
-                 (begin
-                   (advance!)  ;; consume (
-                   (let-values ([(params variadic?) (parse-parameter-list)])
-                     (expect-punct ")")
-                     (skip-function-suffix!)
-                     (cons specifiers
-                           (make-function-decl
-                             (named-type-name return-type)
-                             (make-basic-type 'void)
-                             params
-                             variadic?))))
-                 (parse-error "Expected identifier"))]
+            ;; Constructor - only when in class with matching type name
+            [(and (is-punct? tok "(")
+                  (in-class?!)
+                  (named-type? return-type)
+                  (let ([class-info (current-class!)])
+                    (and class-info
+                         (eq? (named-type-name return-type)
+                              (cdr class-info)))))
+             ;; Constructor
+             (advance!)  ;; consume (
+             (let-values ([(params variadic?) (parse-parameter-list)])
+               (expect-punct ")")
+               (skip-function-suffix!)
+               (cons specifiers
+                     (make-function-decl
+                       (named-type-name return-type)
+                       (make-basic-type 'void)
+                       params
+                       variadic?)))]
 
-            ;; Normal function or variable
-            [(is-identifier? tok)
-             (let ([name (token-value (advance!))])
-               (if (is-punct? (peek) "(")
-                   ;; Function
-                   (begin
-                     (advance!)  ;; consume (
-                     (let-values ([(params variadic?) (parse-parameter-list)])
-                       (expect-punct ")")
-                       ;; Parse const, noexcept, override, final, = 0, = default, = delete
-                       (let ([const? (maybe-keyword 'const)])
-                         (skip-function-suffix!)
-                         (cons (if const? (cons 'const specifiers) specifiers)
-                               (make-function-decl name return-type params variadic?)))))
-                   ;; Variable
-                   (begin
-                     (skip-to-sync!)
-                     (cons specifiers (make-field name return-type)))))]
-
-            ;; Operator
+            ;; Operator overload
             [(is-keyword? tok 'operator)
              (let ([op-name (parse-operator-name)])
                (expect-punct "(")
@@ -854,9 +961,35 @@
                    (cons (if const? (cons 'const specifiers) specifiers)
                          (make-function-decl op-name return-type params variadic?)))))]
 
+            ;; Normal function or variable - use declarator parsing
             [else
-             (skip-to-sync!)
-             (cons specifiers #f)])))))
+             (guard (ex
+                     [(cpp-parse-error? ex)
+                      ;; Declarator parsing failed, skip to sync
+                      (skip-to-sync!)
+                      (cons specifiers #f)])
+               (let-values ([(name decl-type) (parse-declarator return-type)])
+                 (cond
+                   [(not name)
+                    ;; Abstract declarator (no name) - skip
+                    (skip-to-sync!)
+                    (cons specifiers #f)]
+
+                   [(function-type? decl-type)
+                    ;; Function declaration
+                    (let ([const? (maybe-keyword 'const)])
+                      (skip-function-suffix!)
+                      (cons (if const? (cons 'const specifiers) specifiers)
+                            (make-function-decl
+                              name
+                              (function-type-return decl-type)
+                              (function-type-params decl-type)
+                              (function-type-variadic? decl-type))))]
+
+                   [else
+                    ;; Variable declaration
+                    (skip-to-sync!)
+                    (cons specifiers (make-field name decl-type))])))])))))
 
     ;; Skip function suffix (const, noexcept, override, = 0, etc.)
     (define (skip-function-suffix!)
