@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Tokenizer - Token Types
 ;; Token record types for C lexical elements
 
@@ -59,7 +60,7 @@
   (define (eof-token? tok)
     (and (token? tok) (eq? (token-type tok) 'eof)))
 
-  ;;-----------------------------------------------------------------------
+  ;;=======================================================================
   ;; Location Helpers
 
   ;; macro-expansion-location : => location

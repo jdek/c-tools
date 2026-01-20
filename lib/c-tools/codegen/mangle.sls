@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C++ Name Mangling - Itanium C++ ABI
 ;; Implements name mangling for C++ symbols
 ;; Reference: https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangling

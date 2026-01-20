@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Effect system using delimited continuations
 ;; Algebraic effects via shift/reset with multi-value handling
 ;;

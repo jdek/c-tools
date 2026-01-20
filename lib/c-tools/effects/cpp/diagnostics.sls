@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Diagnostic Collection Handler
 ;; Collects warnings and errors during preprocessing
 

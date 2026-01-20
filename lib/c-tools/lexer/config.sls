@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Lexer Configuration
 ;; Parameterizes language-specific lexer features
 

@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Effect Operations
 ;; Core effect operations for C preprocessing
 ;; These are the "perform" side - handlers are in separate files

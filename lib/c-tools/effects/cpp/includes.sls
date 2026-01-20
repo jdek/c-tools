@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Include Directive Handler
 ;; Handles #include with cycle detection
 

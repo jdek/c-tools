@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Delimited Continuations (shift/reset)
 ;; Filinski meta-continuation approach
 
@@ -7,13 +8,13 @@
           (rnrs records syntactic)
           (only (chezscheme) make-parameter))
 
-  ;;---------------------------------------------------------------------------
+  ;;===========================================================================
   ;; Multiple value wrapper for passing through call/cc continuations
 
   (define-record-type multi-vals
     (fields vals))
 
-  ;;---------------------------------------------------------------------------
+  ;;===========================================================================
   ;; Meta-continuation
   ;;
   ;; Represents "the rest of the computation" outside all resets.

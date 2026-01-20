@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Lexer Security Limit Enforcement via Effects
 ;; Integrates with core/limits.sls for DoS prevention
 

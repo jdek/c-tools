@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Macro Expansion Handlers
 ;; Object-like and function-like macro expansion with blue paint
 

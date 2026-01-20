@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Symbol Table Handler
 ;; Tracks defined symbols for #ifdef/#ifndef by delegating to macro handler
 

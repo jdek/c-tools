@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C++ Class Context Effect
 ;; Tracks current class/struct scope during parsing
 

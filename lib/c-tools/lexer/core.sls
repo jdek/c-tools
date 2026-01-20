@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Shared Lexer Core
 ;; Parameterized tokenization logic shared between C and C++ lexers
 ;; Uses closure pattern with proper location tracking (no backward mutation)
@@ -45,7 +46,7 @@
     (define preserve-whitespace? (lexer-config-preserve-whitespace? config))
     (define preserve-comments? (lexer-config-preserve-comments? config))
 
-    ;;-----------------------------------------------------------------------
+    ;;=======================================================================
     ;; Location Tracking (NO BACKWARD MUTATION)
 
     ;; Capture current position as token start location
@@ -57,7 +58,7 @@
     (define (get-location)
       (make-location filename start-line start-column))
 
-    ;;-----------------------------------------------------------------------
+    ;;=======================================================================
     ;; Port Operations
 
     (define (peek)
@@ -87,7 +88,7 @@
                 (put-char out (advance!))
                 (loop)))))))
 
-    ;;-----------------------------------------------------------------------
+    ;;=======================================================================
     ;; Trivia Management
 
     ;; Add trivia to buffer
@@ -106,7 +107,7 @@
     (define (make-cst-with-trivia token)
       (make-cst-node token (consume-trivia!) '()))
 
-    ;;-----------------------------------------------------------------------
+    ;;=======================================================================
     ;; Tokenizers
 
     ;; Tokenize whitespace
@@ -345,9 +346,8 @@
         (add-trivia! 'comment text (get-location))))
 
     ;; Tokenize raw string literal R"delim(...)delim" (C++ only)
+    ;; Note: caller has already consumed 'R', we start at '"'
     (define (tokenize-raw-string)
-      (capture-location!)
-      (advance!)  ;; consume 'R'
       (advance!)  ;; consume '"'
       ;; Read delimiter (chars before '(')
       (let ([delim (call-with-string-output-port
@@ -380,7 +380,8 @@
                                   (cons "Unterminated raw string" (get-location))))]
                                [(char=? c #\))
                                 ;; Check if this is the end marker
-                                (let check ([i 0] [chars '()])
+                                (advance!)  ;; consume the )
+                                (let check ([i 1] [chars (list #\))])
                                   (if (>= i (string-length end-marker))
                                       #f  ;; found end marker, done
                                       (let ([c2 (advance!)])
@@ -452,7 +453,7 @@
               ;; EOF after first char
               (make-token 'punctuator (string c1) (get-location))))))
 
-    ;;-----------------------------------------------------------------------
+    ;;=======================================================================
     ;; Main Tokenization Loop
 
     (define (tokenize-all)

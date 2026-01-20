@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 (library (c-tools effects cpp-lang namespace)
   (export push-namespace!
           pop-namespace!

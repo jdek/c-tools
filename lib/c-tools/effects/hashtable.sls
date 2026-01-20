@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Thread-Safe Hashtable Wrapper
 ;; Provides mutex-protected access to hashtables for safe concurrent use
 ;;

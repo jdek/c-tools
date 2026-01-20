@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; File Effects
 ;; Effect-based filesystem operations for transparent memory-fs/disk handling
 

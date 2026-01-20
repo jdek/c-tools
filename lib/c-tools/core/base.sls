@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C/C++ Shared Base
 ;; Character predicates and operator tables shared between C and C++ lexers
 

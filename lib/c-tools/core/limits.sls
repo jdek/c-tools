@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Security Limits
 ;; DoS prevention: limits on file sizes, nesting depth, expansion, etc.
 ;; Follows pattern from lib/format/javascript.sls

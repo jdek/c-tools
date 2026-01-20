@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C++ Template Context Effect
 ;; Tracks template parameter context during parsing
 ;; Critical for disambiguating < as less-than vs template argument list

@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Lexer Diagnostic Collection Handler
 ;; Collects warnings and errors during lexing without halting
 

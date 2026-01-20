@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 (library (c-tools ast cpp)
   (export namespace-decl namespace-decl? make-namespace-decl
           namespace-decl-name namespace-decl-decls

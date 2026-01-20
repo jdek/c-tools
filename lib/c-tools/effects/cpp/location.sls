@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Source Location Tracking Handler
 ;; Tracks current source location for error reporting
 

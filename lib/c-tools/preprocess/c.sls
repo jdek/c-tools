@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor - Main Entry Point
 ;; Integrates tokenizer, directive processing, and macro expansion
 

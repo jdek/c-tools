@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C++ FFI Code Generator - AST to Chez Scheme FFI
 ;; Generates foreign-procedure and foreign-struct definitions
 ;; Handles C++ namespaces, classes, and name mangling

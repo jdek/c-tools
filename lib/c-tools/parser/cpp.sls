@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C++ Parser - Recursive Descent Parser for C++ Declarations
 ;; Parses preprocessed tokens into AST nodes
 ;; Uses closure pattern with effects for context tracking
@@ -38,24 +39,43 @@
     (define pos 0)
     (define token-list (list->vector tokens))
     (define token-count (vector-length token-list))
+    (define pushback-stack '())  ;; Stack of synthetic tokens for >> splitting
 
     ;; Token operations
     (define (peek)
-      (if (>= pos token-count)
-          #f
-          (vector-ref token-list pos)))
+      (if (pair? pushback-stack)
+          (car pushback-stack)  ;; Return pushed-back token
+          (if (>= pos token-count)
+              #f
+              (vector-ref token-list pos))))
 
     (define (peek-ahead n)
-      (let ([idx (+ pos n)])
-        (if (>= idx token-count)
-            #f
-            (vector-ref token-list idx))))
+      (if (> n 0)
+          (if (pair? pushback-stack)
+              ;; If we have pushback, need to account for it
+              (if (= n 1)
+                  (vector-ref token-list pos)  ;; Next real token
+                  (let ([idx (+ pos (- n 1))])
+                    (if (>= idx token-count)
+                        #f
+                        (vector-ref token-list idx))))
+              (let ([idx (+ pos n)])
+                (if (>= idx token-count)
+                    #f
+                    (vector-ref token-list idx))))
+          (peek)))
 
     (define (advance!)
       (let ([tok (peek)])
         (when tok
-          (set! pos (+ pos 1)))
+          (if (pair? pushback-stack)
+              (set! pushback-stack (cdr pushback-stack))  ;; Pop synthetic token
+              (set! pos (+ pos 1))))  ;; Advance real position
         tok))
+
+    (define (pushback! tok)
+      ;; Push a synthetic token onto the stack
+      (set! pushback-stack (cons tok pushback-stack)))
 
     (define (at-eof?)
       (let ([tok (peek)])
@@ -171,12 +191,10 @@
                  (reverse (cons arg args))]
                 [(is-punct? (peek) ">>")
                  ;; Handle >> as two closing brackets
-                 ;; Replace >> with > for the outer template
-                 (set! pos (- pos 1))  ;; back up
-                 (vector-set! token-list pos
-                              (make-token 'punctuator ">" (token-location (peek))))
-                 (advance!)
-                 (reverse (cons arg args))]
+                 ;; Consume the >>, push back a synthetic > for outer template
+                 (let ([tok (advance!)])
+                   (pushback! (make-token 'punctuator ">" (token-location tok)))
+                   (reverse (cons arg args)))]
                 [else
                  (parse-error "Expected ',' or '>' in template arguments")])))))
 

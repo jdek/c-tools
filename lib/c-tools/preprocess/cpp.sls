@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C++ Preprocessor - Main Entry Point
 ;; Reuses C preprocessor logic with C++ tokenizer
 

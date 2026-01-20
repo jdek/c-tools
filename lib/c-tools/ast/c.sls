@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C AST - Abstract Syntax Tree for C Declarations
 ;; Represents parsed C declarations for FFI generation
 

@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor and Parser Condition Hierarchy
 ;; Follows R6RS exception patterns for consistent error reporting
 

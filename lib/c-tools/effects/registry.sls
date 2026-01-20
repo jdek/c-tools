@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Effect Handler Registry
 ;; Registration system for composable effect handlers
 ;;

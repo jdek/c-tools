@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; FFI Code Generator - AST to Chez Scheme FFI
 ;; Generates foreign-procedure and foreign-struct definitions
 

@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; Concrete Syntax Tree Nodes
 ;; CST nodes wrap tokens with surrounding trivia (whitespace and comments)
 ;; Enables formatters and tools that need to preserve exact source layout

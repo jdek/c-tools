@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C Preprocessor Conditional Compilation Handler
 ;; Handles #if/#ifdef/#ifndef/#elif
 ;;

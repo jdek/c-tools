@@ -1,3 +1,4 @@
+;; SPDX-License-Identifier: WTFPL
 ;; C++ Tokenizer - Lexical Analysis
 ;; Thin wrapper around shared lexer core with C++ configuration
 
@@ -5,11 +6,12 @@
   (export tokenize-cpp-port
           tokenize-cpp-string
           tokenize-cpp-file
-          ;; CST API (new)
+          ;; CST API
           tokenize-cpp-cst-port
           tokenize-cpp-cst-string
           tokenize-cpp-cst-file
-          ;; Export keywords and operators for compatibility
+          ;; Diagnostic API
+          tokenize-cpp-with-diagnostics
           cpp-keywords
           cpp-two-char-operators
           cpp-three-char-operators)
@@ -24,22 +26,37 @@
           (c-tools lexer config)
           (c-tools lexer core))
 
-  ;; Re-export keywords and operators from config
   (define cpp-keywords (lexer-config-keywords cpp-lexer-config))
   (define cpp-two-char-operators (lexer-config-two-char-operators cpp-lexer-config))
   (define cpp-three-char-operators (lexer-config-three-char-operators cpp-lexer-config))
 
   ;;=======================================================================
-  ;; CST API (returns CST nodes with trivia)
+  ;; Diagnostic API
+
+  ;; tokenize-cpp-with-diagnostics : input-port string => (values (list cst-node) (list diagnostic))
+  ;;   effects: io/read
+  ;;   raises: on malformed input or security limit exceeded
+  ;;   Returns both CST nodes and collected diagnostics
+  (define (tokenize-cpp-with-diagnostics port filename)
+    (with-lexer-limits
+      (lambda ()
+        (with-lexer-diagnostics
+          (lambda ()
+            (tokenize-port-with-config cpp-lexer-config port filename))))))
+
+  ;;=======================================================================
+  ;; CST API
 
   ;; tokenize-cpp-cst-port : input-port string => (list cst-node)
   ;;   effects: io/read
   ;;   raises: on malformed input or security limit exceeded
   ;;   Tokenizes C++ source from input port, returns CST nodes with trivia
   (define (tokenize-cpp-cst-port port filename)
-    (with-lexer-limits
-      (lambda ()
-        (tokenize-port-with-config cpp-lexer-config port filename))))
+    (call-with-values
+      (lambda () (tokenize-cpp-with-diagnostics port filename))
+      (lambda (cst-nodes diagnostics)
+        ;; Discard diagnostics for simple API
+        cst-nodes)))
 
   ;; tokenize-cpp-cst-string : string string => (list cst-node)
   ;;   raises: on malformed input or security limit exceeded
@@ -59,7 +76,7 @@
         (tokenize-cpp-cst-port port path))))
 
   ;;=======================================================================
-  ;; Token API (backward compatible - returns tokens only)
+  ;; Token API
 
   ;; tokenize-cpp-port : input-port string => (list token)
   ;;   effects: io/read
