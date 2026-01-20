@@ -10,6 +10,8 @@
           (rnrs conditions)
           (rnrs control)
           (rnrs exceptions)
+          (rnrs io ports)
+          (rnrs io simple)
           (rnrs lists)
           (rnrs records syntactic)
           (c-tools ast c)
@@ -98,11 +100,17 @@
     ;; Error handling
     (define (parse-error msg)
       (let ([tok (peek)])
-        (raise
-          (condition
-            (make-cpp-parse-error (if tok (token-location tok) #f))
-            (make-message-condition msg)
-            (make-irritants-condition (if tok (list tok) '()))))))
+        (let ([full-msg (if tok
+                            (format "~a, got ~a '~a'"
+                                   msg
+                                   (token-type tok)
+                                   (token-value tok))
+                            msg)])
+          (raise
+            (condition
+              (make-cpp-parse-error (if tok (token-location tok) #f))
+              (make-message-condition full-msg)
+              (make-irritants-condition (if tok (list tok) '())))))))
 
     ;; Expect helpers
     (define (expect-keyword kw)
@@ -142,8 +150,8 @@
           (cond
             [(not tok) #f]
             [(eof-token? tok) #f]
-            [(is-punct? tok ";") (advance!) #f]
-            [(is-punct? tok "}") #f]  ;; Don't consume, might be needed
+            [(is-punct? tok ";") (advance!) #t]  ;; Found sync point
+            [(is-punct? tok "}") (advance!) #t]  ;; Consume } and stop
             [else (advance!) (loop)]))))
 
     ;; Parse qualified name (foo::bar::baz)
@@ -627,13 +635,21 @@
         (let ([bases (if (is-punct? (peek) ":")
                          (parse-base-classes)
                          '())])
-          (expect-punct "{")
-          (push-class! kind name)
-          (let ([members (parse-member-list)])
-            (expect-punct "}")
-            (pop-class!)
-            (maybe-punct ";")
-            (make-class-decl kind name bases members)))))
+          ;; Check for forward declaration (;) vs definition ({)
+          (if (is-punct? (peek) ";")
+              ;; Forward declaration
+              (begin
+                (advance!)  ;; consume ;
+                (make-class-decl kind name bases '()))
+              ;; Full definition
+              (begin
+                (expect-punct "{")
+                (push-class! kind name)
+                (let ([members (parse-member-list)])
+                  (expect-punct "}")
+                  (pop-class!)
+                  (maybe-punct ";")
+                  (make-class-decl kind name bases members)))))))
 
     ;; Parse base class list
     (define (parse-base-classes)
@@ -998,19 +1014,32 @@
         [(_ expr)
          expr]))  ;; Just return the expression
 
-    ;; Main parse loop
+    ;; Main parse loop with error recovery
     (let loop ([decls '()])
       (if (at-eof?)
           (reverse decls)
-          (let ([result (parse-declaration)])
-            (if result
-                (let ([decl (cdr result)])  ;; extract decl from (specifiers . decl)
-                  (if decl
-                      (if (list? decl)
-                          (loop (append (reverse decl) decls))
-                          (loop (cons decl decls)))
-                      (loop decls)))
-                (loop decls))))))
+          (guard (ex
+                  [(cpp-parse-error? ex)
+                   ;; Print error and continue parsing
+                   (let ([loc (cpp-parse-error-location ex)])
+                     (display (format "Parse error at ~a:~a:~a: ~a\n"
+                                     (if loc (location-file loc) "?")
+                                     (if loc (location-line loc) "?")
+                                     (if loc (location-column loc) "?")
+                                     (condition-message ex))
+                             (current-error-port)))
+                   ;; Skip to next sync point and continue
+                   (skip-to-sync!)
+                   (loop decls)])
+            (let ([result (parse-declaration)])
+              (if result
+                  (let ([decl (cdr result)])  ;; extract decl from (specifiers . decl)
+                    (if decl
+                        (if (list? decl)
+                            (loop (append (reverse decl) decls))
+                            (loop (cons decl decls)))
+                        (loop decls)))
+                  (loop decls)))))))
 
   ;; Single declaration entry point
   (define (parse-cpp-declaration tokens)

@@ -292,12 +292,35 @@
                           (perform (make-effect 'lexer-error
                             (cons "Unterminated char literal" (get-location))))]
                          [(char=? c #\\)
+                          ;; Escape sequence
                           (put-char out c)
                           (let ([escaped (advance!)])
-                            (if (eof-object? escaped)
-                                (perform (make-effect 'lexer-error
-                                  (cons "Unterminated escape sequence" (get-location))))
-                                (put-char out escaped)))]
+                            (cond
+                              [(eof-object? escaped)
+                               (perform (make-effect 'lexer-error
+                                 (cons "Unterminated escape sequence" (get-location))))]
+                              ;; Hex escape: \xHH
+                              [(and (char? escaped) (or (char=? escaped #\x) (char=? escaped #\X)))
+                               (put-char out escaped)
+                               ;; Read hex digits
+                               (let loop ()
+                                 (let ([c (peek)])
+                                   (when (and (char? c) (c-hex-digit? c))
+                                     (put-char out (advance!))
+                                     (loop))))]
+                              ;; Octal escape: \OOO (up to 3 octal digits)
+                              [(and (char? escaped) (char>=? escaped #\0) (char<=? escaped #\7))
+                               (put-char out escaped)
+                               ;; Read up to 2 more octal digits
+                               (let loop ([count 1])
+                                 (when (< count 3)
+                                   (let ([c (peek)])
+                                     (when (and (char? c) (char>=? c #\0) (char<=? c #\7))
+                                       (put-char out (advance!))
+                                       (loop (+ count 1))))))]
+                              ;; Single character escape
+                              [else
+                               (put-char out escaped)]))]
                          [else
                           (put-char out c)]))))])
         (let ([close (advance!)])
