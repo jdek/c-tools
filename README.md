@@ -12,19 +12,27 @@ C Tools provides independently reusable components for working with C and C++ co
 - **FFI Generator** - Generate Chez Scheme or Racket FFI bindings
 - **Effects System** - Composable effect handlers for extensibility
 
+Example uses may include:
+
+- Generate FFI bindings for C/C++ libraries
+- Build syntax highlighters or formatters
+- Create code analysis tools
+- Parse headers without full preprocessing
+- Generate documentation from headers
+
 ## Quick Start
 
 Generate FFI bindings from C/C++ headers:
 
 ```bash
 # Chez Scheme FFI (default)
-./tools/ffi.ss mylib.h -l mylib -o bindings.sls
+./ffi.ss mylib.h -l mylib -o bindings.sls
 
 # Racket FFI
-./tools/ffi.ss mylib.h --racket -o bindings.rkt
+./ffi.ss mylib.h --racket -o bindings.rkt
 
 # C++ with name mangling
-./tools/ffi.ss myclass.hpp -x c++ --racket -o bindings.rkt
+./ffi.ss myclass.hpp -x c++ --racket -o bindings.rkt
 ```
 
 ## Installation
@@ -169,11 +177,3 @@ export CHEZSCHEMELIBDIRS="/path/to/c-tools/lib:${CHEZSCHEMELIBDIRS}"
 - Generic templates skipped (only specializations supported)
 - Virtual functions work but require proper object layout
 - Operator overloading not yet supported
-
-## Use Cases
-
-- Generate FFI bindings for C/C++ libraries
-- Build syntax highlighters or formatters
-- Create code analysis tools
-- Parse headers without full preprocessing
-- Generate documentation from headers
