@@ -706,17 +706,22 @@
     (define (parse-template-param)
       (let ([tok (peek)])
         (cond
-          ;; typename T or class T
+          ;; typename T or class T (possibly variadic)
           [(or (is-keyword? tok 'typename) (is-keyword? tok 'class))
            (let ([kind (token-value (advance!))])
-             (if (is-identifier? (peek))
-                 (let ([name (token-value (advance!))])
-                   ;; Check for default
-                   (when (is-punct? (peek) "=")
-                     (advance!)
-                     (parse-type))  ;; skip default
-                   (cons kind name))
-                 (cons kind #f)))]
+             ;; Check for variadic ... (typename... or class...)
+             (let ([variadic? (is-punct? (peek) "...")])
+               (when variadic? (advance!))  ;; consume ...
+               (if (is-identifier? (peek))
+                   (let ([name (token-value (advance!))])
+                     ;; Check for default (not valid with variadic)
+                     (when (and (not variadic?) (is-punct? (peek) "="))
+                       (advance!)
+                       (parse-type))  ;; skip default
+                     (cons kind (if variadic?
+                                   (string->symbol (format "~a..." name))
+                                   name)))
+                   (cons kind (if variadic? '... #f)))))]
           ;; Non-type parameter
           [else
            (let ([type (parse-type)])
@@ -744,12 +749,34 @@
             [(is-punct? tok ")") (advance!) (loop (- depth 1))]
             [else (advance!) (loop depth)]))))
 
+    ;; Convert template argument type to simple name for mangling
+    (define (template-arg->name arg)
+      (cond
+        [(basic-type? arg) (symbol->string (basic-type-name arg))]
+        [(named-type? arg) (symbol->string (named-type-name arg))]
+        [(pointer-type? arg)
+         (string-append (template-arg->name (pointer-type-pointee arg)) "-ptr")]
+        [(symbol? arg) (symbol->string arg)]
+        [else "T"]))
+
     ;; Parse class/struct definition
     (define (parse-class-definition kind)
       (expect-keyword kind)
       (let ([name (if (is-identifier? (peek))
                       (token-value (advance!))
                       #f)])
+        ;; Handle template arguments for specializations (class Foo<int>)
+        (when (and name (is-punct? (peek) "<"))
+          (let ([args (parse-template-args)])
+            ;; For FFI purposes, mangle the name: Foo<int> -> Foo-int
+            (set! name (string->symbol
+                         (if (null? args)
+                             (format "~a-specialized" name)
+                             (let ([arg-names (map template-arg->name args)])
+                               (apply string-append
+                                     (symbol->string name)
+                                     (map (lambda (a) (string-append "-" a))
+                                          arg-names))))))))
         ;; Register as template if we have template params
         (when (and name (in-template?!))
           (register-template-name! name))

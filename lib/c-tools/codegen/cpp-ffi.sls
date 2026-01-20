@@ -50,12 +50,31 @@
                (let ([class-forms (class->ffi-forms decl namespaces)])
                  (loop (cdr decls) (append (reverse class-forms) forms)))]
 
-              ;; Template - skip for now (can't instantiate generically)
+              ;; Template - check if it's a specialization
               [(template-decl? decl)
-               (loop (cdr decls)
-                     (cons `(comment ,(format "Skipping template: ~a"
-                                              (template-summary decl)))
-                           forms))]
+               (if (null? (template-decl-params decl))
+                   ;; Empty params = full specialization (template<> class Foo<int>)
+                   ;; Treat as concrete type and generate FFI
+                   (let* ([inner-pair (template-decl-decl decl)]
+                          [inner-decl (if (pair? inner-pair) (cdr inner-pair) inner-pair)])
+                     (cond
+                       [(class-decl? inner-decl)
+                        (let ([class-forms (class->ffi-forms inner-decl namespaces)])
+                          (loop (cdr decls) (append (reverse class-forms) forms)))]
+                       [(function-decl? inner-decl)
+                        (let ([form (function->ffi-form inner-decl namespaces #f)])
+                          (loop (cdr decls) (cons form forms)))]
+                       [else
+                        ;; Other specializations - skip for now
+                        (loop (cdr decls)
+                              (cons `(comment ,(format "Skipping specialized: ~a"
+                                                       (template-summary decl)))
+                                    forms))]))
+                   ;; Non-empty params = generic template, skip
+                   (loop (cdr decls)
+                         (cons `(comment ,(format "Skipping template: ~a"
+                                                  (template-summary decl)))
+                               forms)))]
 
               ;; Function - generate with mangled name
               [(function-decl? decl)
