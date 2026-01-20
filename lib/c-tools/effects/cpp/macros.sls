@@ -4,6 +4,7 @@
 
 (library (c-tools effects cpp macros)
   (export with-cpp-macros
+          register-cpp-macros!
           make-macro-def macro-def?
           macro-def-name macro-def-params macro-def-body
           macro-def-is-function?)
@@ -277,7 +278,10 @@
   ;;=========================================================================
   ;; Registration
 
-  (register-effect! 'cpp-macros
-    (lambda (spec thunk)
-      (with-cpp-macros thunk)))
-)
+  (define (register-cpp-macros!)
+    (register-effect! 'cpp-macros
+      (lambda (spec thunk)
+        (with-cpp-macros thunk))))
+
+  ;; Auto-register on load
+  (register-cpp-macros!))

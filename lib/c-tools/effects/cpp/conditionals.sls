@@ -23,6 +23,7 @@
 
 (library (c-tools effects cpp conditionals)
   (export with-cpp-conditional
+          register-cpp-conditional!
           eval-const-expr)
   (import (rnrs base)
           (rnrs lists)
@@ -135,7 +136,10 @@
   ;;=========================================================================
   ;; Registration
 
-  (register-effect! 'cpp-conditional
-    (lambda (spec thunk)
-      (with-cpp-conditional thunk)))
-)
+  (define (register-cpp-conditional!)
+    (register-effect! 'cpp-conditional
+      (lambda (spec thunk)
+        (with-cpp-conditional thunk))))
+
+  ;; Auto-register on load
+  (register-cpp-conditional!))

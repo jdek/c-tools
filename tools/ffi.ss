@@ -194,6 +194,11 @@
 ;; Main entry point
 
 (define (main)
+  ;; Force effect registration by referencing the register functions
+  (register-cpp-include!)
+  (register-cpp-macros!)
+  (register-cpp-conditional!)
+
   (let* ([args (command-line-arguments)]
          [parsed (parse-args args)]
          [lang-arg (car parsed)]

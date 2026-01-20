@@ -3,7 +3,8 @@
 ;; Handles #include with cycle detection
 
 (library (c-tools effects cpp includes)
-  (export with-cpp-include)
+  (export with-cpp-include
+          register-cpp-include!)
   (import (rnrs base)
           (rnrs conditions)
           (rnrs exceptions)
@@ -57,7 +58,12 @@
   ;;=========================================================================
   ;; Registration
 
-  (register-effect! 'cpp-include
-    (lambda (spec thunk)
-      (with-cpp-include (cadr spec) thunk)))
-)
+  (define (register-cpp-include!)
+    (register-effect! 'cpp-include
+      (lambda (spec thunk)
+        (if (pair? spec)
+            (with-cpp-include (cadr spec) thunk)
+            (with-cpp-include '() thunk)))))
+
+  ;; Auto-register on load
+  (register-cpp-include!))
