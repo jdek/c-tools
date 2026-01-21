@@ -24,7 +24,7 @@
           (rnrs hashtables)
           (rnrs records syntactic)
           (rnrs control)
-          (only (chezscheme) make-mutex with-mutex hashtable-values))
+          (only (c-tools utility) make-mutex with-mutex hashtable-values))
 
   (define-record-type (protected-hashtable %make-protected-hashtable protected-hashtable?)
     (fields

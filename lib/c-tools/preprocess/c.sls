@@ -23,7 +23,7 @@
           (c-tools effects cpp symbols)
           (c-tools effects files)
           (c-tools lexer c)
-          (only (chezscheme) format last-pair))
+          (only (c-tools utility) format last-pair))
 
   ;; Process a list of tokens, handling directives and expanding macros
   (define (preprocess-tokens tokens)

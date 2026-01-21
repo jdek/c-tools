@@ -13,7 +13,7 @@
           (c-tools core limits)
           (c-tools core tokens)
           (c-tools effects core)
-          (only (chezscheme) format))
+          (only (c-tools utility) format))
 
   ;; with-lexer-limits : (=> values) => values
   ;;   effects: handles check-limit effect

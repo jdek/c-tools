@@ -14,7 +14,7 @@
   (import (rnrs base)
           (rnrs lists)
           (rnrs control)
-          (only (chezscheme) void)
+          (only (c-tools utility) void)
           (c-tools effects core))
 
   ;; Push template parameters onto the stack

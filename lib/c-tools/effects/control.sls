@@ -6,7 +6,7 @@
   (export reset shift)
   (import (rnrs base)
           (rnrs records syntactic)
-          (only (chezscheme) make-parameter))
+          (only (c-tools utility) make-parameter))
 
   ;;===========================================================================
   ;; Multiple value wrapper for passing through call/cc continuations

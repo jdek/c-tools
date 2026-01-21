@@ -13,8 +13,8 @@
           (only (chezscheme)
                 file-exists?
                 open-file-input-port
-                port-length
-                void)
+                port-length)
+          (only (c-tools utility) void)
           (c-tools effects hashtable)
           (c-tools effects core))
 

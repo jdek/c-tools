@@ -7,7 +7,7 @@
           with-cpp-namespace)
   (import (rnrs base)
           (rnrs lists)
-          (only (chezscheme) void)
+          (only (c-tools utility) void)
           (c-tools effects core))
 
   (define (push-namespace! name)

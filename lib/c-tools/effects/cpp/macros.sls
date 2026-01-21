@@ -16,7 +16,7 @@
           (c-tools core tokens)
           (c-tools effects core)
           (c-tools effects registry)
-          (only (chezscheme) format))
+          (only (c-tools utility) format))
 
   ;; Macro definition record
   ;; - name: symbol (macro name)

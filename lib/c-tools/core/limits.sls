@@ -31,7 +31,7 @@
           (rnrs lists)
           (rnrs conditions)
           (rnrs exceptions)
-          (only (chezscheme) box unbox set-box!)
+          (only (c-tools utility) box unbox set-box!)
           (c-tools core conditions))
 
   ;;; Document-level limits

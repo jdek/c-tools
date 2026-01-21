@@ -14,7 +14,7 @@
           (c-tools ast c)
           (c-tools core conditions)
           (c-tools core tokens)
-          (only (chezscheme) format))
+          (only (c-tools utility) format))
 
   ;; Parser entry point
   (define (parse-declarations tokens)

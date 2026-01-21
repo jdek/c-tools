@@ -12,7 +12,7 @@
           with-cpp-class)
   (import (rnrs base)
           (rnrs lists)
-          (only (chezscheme) void)
+          (only (c-tools utility) void)
           (c-tools effects core))
 
   ;; Push a new class context onto the stack

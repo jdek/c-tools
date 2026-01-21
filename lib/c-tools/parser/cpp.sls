@@ -23,7 +23,7 @@
           (c-tools effects cpp-lang namespace)
           (c-tools effects cpp-lang templates)
           (c-tools lexer cpp)
-          (only (chezscheme) format))
+          (only (c-tools utility) format))
 
   ;; Parser entry point - creates parser context and runs
   (define (parse-cpp-declarations tokens)

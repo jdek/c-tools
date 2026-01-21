@@ -7,7 +7,7 @@
   (import (rnrs base)
           (c-tools effects core)
           (c-tools effects registry)
-          (only (chezscheme) box set-box! unbox))
+          (only (c-tools utility) box set-box! unbox))
 
   ;; Location tracking handler
   ;; Maintains current file and line for error reporting

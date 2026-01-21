@@ -19,7 +19,7 @@
           (c-tools core tokens)
           (c-tools effects core)
           (c-tools lexer config)
-          (only (chezscheme) format))
+          (only (c-tools utility) format))
 
   ;; tokenize-port-with-config : lexer-config input-port string => (list cst-node)
   ;;   effects: io/read, check-limit (via effects)
