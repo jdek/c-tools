@@ -14,6 +14,12 @@
         (prefix (c-tools codegen chez cpp-ffi) chez:)
         (prefix (c-tools codegen racket ffi) racket:)
         (prefix (c-tools codegen racket cpp-ffi) racket:)
+        (prefix (c-tools codegen guile ffi) guile:)
+        (prefix (c-tools codegen guile cpp-ffi) guile:)
+        (prefix (c-tools codegen chicken ffi) chicken:)
+        (prefix (c-tools codegen chicken cpp-ffi) chicken:)
+        (prefix (c-tools codegen gambit ffi) gambit:)
+        (prefix (c-tools codegen gambit cpp-ffi) gambit:)
         (c-tools effects files)
         (c-tools effects cpp core)
         (c-tools effects cpp macros)
@@ -98,6 +104,126 @@
                       (display ffi-code port))))
                 (display ffi-code))))))))
 
+(define (generate-guile-c-ffi filename lib-name output-file)
+  ;; Guile C FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-file filename)]
+                 [decls (parse-declarations tokens)]
+                 [ffi-code (guile:generate-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
+(define (generate-guile-cpp-ffi filename lib-name output-file)
+  ;; Guile C++ FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-cpp-file filename)]
+                 [decls (parse-cpp-declarations tokens)]
+                 [ffi-code (guile:generate-cpp-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
+(define (generate-chicken-c-ffi filename lib-name output-file)
+  ;; Chicken C FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-file filename)]
+                 [decls (parse-declarations tokens)]
+                 [ffi-code (chicken:generate-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
+(define (generate-chicken-cpp-ffi filename lib-name output-file)
+  ;; Chicken C++ FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-cpp-file filename)]
+                 [decls (parse-cpp-declarations tokens)]
+                 [ffi-code (chicken:generate-cpp-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
+(define (generate-gambit-c-ffi filename lib-name output-file)
+  ;; Gambit C FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-file filename)]
+                 [decls (parse-declarations tokens)]
+                 [ffi-code (gambit:generate-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
+(define (generate-gambit-cpp-ffi filename lib-name output-file)
+  ;; Gambit C++ FFI generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-cpp-file filename)]
+                 [decls (parse-cpp-declarations tokens)]
+                 [ffi-code (gambit:generate-cpp-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
 ;;=======================================================================
 ;; CLI argument parsing
 
@@ -110,15 +236,19 @@
   (display "  -x LANG        Force language mode (c or c++)\n")
   (display "  -l LIBNAME     Library name for FFI bindings\n")
   (display "  -o FILE        Output file (default: stdout)\n")
-  (display "  -t TARGET      Target platform (chez or racket, default: chez)\n")
-  (display "  --chez         Shorthand for -t chez\n")
+  (display "  -t TARGET      Target (chez, racket, guile, chicken, gambit)\n")
+  (display "  --chez         Shorthand for -t chez (default)\n")
   (display "  --racket       Shorthand for -t racket\n")
+  (display "  --guile        Shorthand for -t guile\n")
+  (display "  --chicken      Shorthand for -t chicken\n")
+  (display "  --gambit       Shorthand for -t gambit\n")
   (display "  --help         Show this help message\n")
   (display "\n")
   (display "Examples:\n")
   (display "  ffi.ss mylib.h -l mylib -o bindings.sls\n")
   (display "  ffi.ss -x c++ myclass.hpp -l myclass --racket\n")
-  (display "  ffi.ss mylib.h -t racket -o bindings.rkt\n")
+  (display "  ffi.ss mylib.h -t guile -o bindings.scm\n")
+  (display "  ffi.ss mylib.h --chicken -o bindings.scm\n")
   (newline))
 
 (define (detect-language filename)
@@ -194,6 +324,12 @@
        (loop (cdr args) lang lib-name output-file input-file 'chez)]
       [(string=? (car args) "--racket")
        (loop (cdr args) lang lib-name output-file input-file 'racket)]
+      [(string=? (car args) "--guile")
+       (loop (cdr args) lang lib-name output-file input-file 'guile)]
+      [(string=? (car args) "--chicken")
+       (loop (cdr args) lang lib-name output-file input-file 'chicken)]
+      [(string=? (car args) "--gambit")
+       (loop (cdr args) lang lib-name output-file input-file 'gambit)]
       [(string=? (car args) "-t")
        (if (null? (cdr args))
            (begin
@@ -208,6 +344,9 @@
                    (cond
                      [(string=? target-str "chez") 'chez]
                      [(string=? target-str "racket") 'racket]
+                     [(string=? target-str "guile") 'guile]
+                     [(string=? target-str "chicken") 'chicken]
+                     [(string=? target-str "gambit") 'gambit]
                      [else (begin
                              (display (format "Error: Unknown target: ~a\n" target-str))
                              (exit 1))]))))]
@@ -295,7 +434,19 @@
       [(racket)
        (if (eq? lang 'c++)
            (generate-racket-cpp-ffi input-file lib-name output-file)
-           (generate-racket-c-ffi input-file lib-name output-file))])
+           (generate-racket-c-ffi input-file lib-name output-file))]
+      [(guile)
+       (if (eq? lang 'c++)
+           (generate-guile-cpp-ffi input-file lib-name output-file)
+           (generate-guile-c-ffi input-file lib-name output-file))]
+      [(chicken)
+       (if (eq? lang 'c++)
+           (generate-chicken-cpp-ffi input-file lib-name output-file)
+           (generate-chicken-c-ffi input-file lib-name output-file))]
+      [(gambit)
+       (if (eq? lang 'c++)
+           (generate-gambit-cpp-ffi input-file lib-name output-file)
+           (generate-gambit-c-ffi input-file lib-name output-file))])
 
     (when output-file
       (display (format "Generated FFI bindings: ~a\n" output-file)))))
