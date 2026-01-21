@@ -11,7 +11,7 @@
           (rnrs io simple)
           (rnrs lists)
           (c-tools ast c)
-          (only (chezscheme) format))
+          (except (c-tools utility) extract-exports))
 
   ;;; Type Mapping: C types to Chez Scheme FFI types
 
@@ -214,7 +214,4 @@
               [else
                (loop (cdr forms) exports)])))))
 
-  ;; Helper to concatenate symbols
-  (define (symbol-append . syms)
-    (string->symbol
-     (apply string-append (map symbol->string syms)))))
+)

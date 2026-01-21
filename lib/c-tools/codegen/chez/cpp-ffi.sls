@@ -10,11 +10,12 @@
           (rnrs control)
           (rnrs io ports)
           (rnrs lists)
+          (rnrs mutable-pairs)
           (c-tools ast c)
           (c-tools ast cpp)
           (c-tools codegen chez ffi)
           (c-tools codegen mangle)
-          (only (chezscheme) format set-car! set-cdr!))
+          (except (c-tools utility) extract-exports))
 
   ;; Generate FFI code from C++ declarations
   ;; lib-name: shared library name (e.g., "libfoo.so")
@@ -463,15 +464,6 @@
               [else
                (loop (cdr forms) exports)])))))
 
-  ;; Helper: filter-map
-  (define (filter-map proc lst)
-    (let loop ([lst lst] [result '()])
-      (if (null? lst)
-          (reverse result)
-          (let ([val (proc (car lst))])
-            (if val
-                (loop (cdr lst) (cons val result))
-                (loop (cdr lst) result))))))
 
   ;; Single declaration conversion (for testing)
   (define (cpp-declaration->ffi-form decl namespaces)

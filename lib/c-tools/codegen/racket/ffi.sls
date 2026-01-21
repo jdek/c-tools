@@ -8,10 +8,12 @@
           declaration->ffi-form)
   (import (rnrs base)
           (rnrs control)
+          (rnrs io simple)
           (rnrs lists)
           (rnrs io ports)
           (c-tools ast c)
-          (only (chezscheme) format pretty-print display))
+          (except (c-tools utility) extract-exports)
+          (only (c-tools utility) pretty-print))
 
   ;;=======================================================================
   ;; Main FFI Generation
@@ -72,14 +74,6 @@
       [(number? val) (number->string val)]
       [(boolean? val) (if val "#t" "#f")]
       [else "#<unknown>"]))
-
-  (define (string-join strs sep)
-    (if (null? strs)
-        ""
-        (let loop ([strs (cdr strs)] [result (car strs)])
-          (if (null? strs)
-              result
-              (loop (cdr strs) (string-append result sep (car strs)))))))
 
   ;;=======================================================================
   ;; Declaration Conversion
@@ -269,20 +263,6 @@
 
   ;;=======================================================================
   ;; Helpers
-
-  (define (symbol-append . syms)
-    (string->symbol
-      (apply string-append (map symbol->string syms))))
-
-  (define (filter-map proc lst)
-    (let loop ([lst lst] [result '()])
-      (cond
-        [(null? lst) (reverse result)]
-        [else
-         (let ([val (proc (car lst))])
-           (if val
-               (loop (cdr lst) (cons val result))
-               (loop (cdr lst) result)))])))
 
   (define (extract-exports forms)
     (let loop ([forms forms] [exports '()])

@@ -6,13 +6,15 @@
   (export generate-cpp-ffi-code)
   (import (rnrs base)
           (rnrs control)
+          (rnrs io simple)
           (rnrs io ports)
           (rnrs lists)
+          (rnrs mutable-pairs)
           (c-tools ast c)
           (c-tools ast cpp)
           (c-tools codegen racket ffi)
           (c-tools codegen mangle)
-          (only (chezscheme) format set-car! set-cdr! display))
+          (except (c-tools utility) extract-exports))
 
   ;;=======================================================================
   ;; Main C++ FFI Generation
@@ -181,34 +183,6 @@
 
   ;;=======================================================================
   ;; Helpers
-
-  (define (symbol-append . syms)
-    (string->symbol
-      (apply string-append
-             (map (lambda (s)
-                    (cond
-                      [(symbol? s) (symbol->string s)]
-                      [(string? s) s]
-                      [else (format "~a" s)]))
-                  syms))))
-
-  (define (string-join strs sep)
-    (if (null? strs)
-        ""
-        (let loop ([strs (cdr strs)] [result (car strs)])
-          (if (null? strs)
-              result
-              (loop (cdr strs) (string-append result sep (car strs)))))))
-
-  (define (filter-map proc lst)
-    (let loop ([lst lst] [result '()])
-      (cond
-        [(null? lst) (reverse result)]
-        [else
-         (let ([val (proc (car lst))])
-           (if val
-               (loop (cdr lst) (cons val result))
-               (loop (cdr lst) result)))])))
 
   (define (racket-form->string form)
     (call-with-string-output-port
