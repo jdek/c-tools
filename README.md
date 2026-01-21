@@ -1,6 +1,6 @@
 # C Tools
 
-A modular C/C++ parsing and FFI binding generation toolkit for Schemes and Lisps.
+A modular C/C++ parsing and FFI binding generation toolkit for Scheme and Common Lisp.
 
 ## Overview
 
@@ -9,7 +9,7 @@ C Tools provides independently reusable components for working with C and C++ co
 - **Lexer** - Tokenize C/C++ source with trivia preservation
 - **Parser** - Build ASTs from declarations
 - **Preprocessor** - Handle macros, includes, conditionals
-- **FFI Generator** - Generate FFI bindings for Chez, Racket, Guile, Chicken, and Gambit Scheme
+- **FFI Generator** - Generate FFI bindings for Chez, Racket, Guile, Chicken, Gambit Scheme, and Common Lisp CFFI
 - **Effects System** - Composable effect handlers for extensibility
 
 Example uses may include:
@@ -40,7 +40,10 @@ Generate FFI bindings from C/C++ headers:
 # Gambit Scheme FFI
 ./ffi.ss mylib.h --gambit -o bindings.scm
 
-# C++ with name mangling (any target)
+# Common Lisp CFFI
+./ffi.ss mylib.h --cffi -o bindings.lisp
+
+# C++ with name mangling (Scheme targets only)
 ./ffi.ss myclass.hpp -x c++ --guile -o bindings.scm
 ```
 

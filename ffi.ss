@@ -20,6 +20,7 @@
         (prefix (c-tools codegen chicken cpp-ffi) chicken:)
         (prefix (c-tools codegen gambit ffi) gambit:)
         (prefix (c-tools codegen gambit cpp-ffi) gambit:)
+        (prefix (c-tools codegen cffi ffi) cffi:)
         (c-tools effects files)
         (c-tools effects cpp core)
         (c-tools effects cpp macros)
@@ -224,6 +225,26 @@
                       (display ffi-code port))))
                 (display ffi-code))))))))
 
+(define (generate-cffi-c-ffi filename lib-name output-file)
+  ;; Common Lisp CFFI C generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-file filename)]
+                 [decls (parse-declarations tokens)]
+                 [ffi-code (cffi:generate-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
 ;;=======================================================================
 ;; CLI argument parsing
 
@@ -236,12 +257,13 @@
   (display "  -x LANG        Force language mode (c or c++)\n")
   (display "  -l LIBNAME     Library name for FFI bindings\n")
   (display "  -o FILE        Output file (default: stdout)\n")
-  (display "  -t TARGET      Target (chez, racket, guile, chicken, gambit)\n")
+  (display "  -t TARGET      Target (chez, racket, guile, chicken, gambit, cffi)\n")
   (display "  --chez         Shorthand for -t chez (default)\n")
   (display "  --racket       Shorthand for -t racket\n")
   (display "  --guile        Shorthand for -t guile\n")
   (display "  --chicken      Shorthand for -t chicken\n")
   (display "  --gambit       Shorthand for -t gambit\n")
+  (display "  --cffi         Shorthand for -t cffi (Common Lisp)\n")
   (display "  --help         Show this help message\n")
   (display "\n")
   (display "Examples:\n")
@@ -330,6 +352,8 @@
        (loop (cdr args) lang lib-name output-file input-file 'chicken)]
       [(string=? (car args) "--gambit")
        (loop (cdr args) lang lib-name output-file input-file 'gambit)]
+      [(string=? (car args) "--cffi")
+       (loop (cdr args) lang lib-name output-file input-file 'cffi)]
       [(string=? (car args) "-t")
        (if (null? (cdr args))
            (begin
@@ -347,6 +371,7 @@
                      [(string=? target-str "guile") 'guile]
                      [(string=? target-str "chicken") 'chicken]
                      [(string=? target-str "gambit") 'gambit]
+                     [(string=? target-str "cffi") 'cffi]
                      [else (begin
                              (display (format "Error: Unknown target: ~a\n" target-str))
                              (exit 1))]))))]
@@ -446,7 +471,14 @@
       [(gambit)
        (if (eq? lang 'c++)
            (generate-gambit-cpp-ffi input-file lib-name output-file)
-           (generate-gambit-c-ffi input-file lib-name output-file))])
+           (generate-gambit-c-ffi input-file lib-name output-file))]
+      [(cffi)
+       (if (eq? lang 'c++)
+           (begin
+             (display "Error: C++ not yet supported for CFFI backend\n")
+             (display "Note: CFFI C++ support requires wrapper generation\n")
+             (exit 1))
+           (generate-cffi-c-ffi input-file lib-name output-file))])
 
     (when output-file
       (display (format "Generated FFI bindings: ~a\n" output-file)))))
