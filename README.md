@@ -1,6 +1,6 @@
 # C Tools
 
-A modular C/C++ parsing and FFI binding generation toolkit for Scheme.
+A modular C/C++ parsing and FFI binding generation toolkit for Schemes and Lisps.
 
 ## Overview
 
@@ -9,7 +9,7 @@ C Tools provides independently reusable components for working with C and C++ co
 - **Lexer** - Tokenize C/C++ source with trivia preservation
 - **Parser** - Build ASTs from declarations
 - **Preprocessor** - Handle macros, includes, conditionals
-- **FFI Generator** - Generate Chez Scheme or Racket FFI bindings
+- **FFI Generator** - Generate FFI bindings for Chez, Racket, Guile, Chicken, and Gambit Scheme
 - **Effects System** - Composable effect handlers for extensibility
 
 Example uses may include:
@@ -31,8 +31,17 @@ Generate FFI bindings from C/C++ headers:
 # Racket FFI
 ./ffi.ss mylib.h --racket -o bindings.rkt
 
-# C++ with name mangling
-./ffi.ss myclass.hpp -x c++ --racket -o bindings.rkt
+# Guile FFI
+./ffi.ss mylib.h --guile -o bindings.scm
+
+# Chicken Scheme FFI
+./ffi.ss mylib.h --chicken -o bindings.scm
+
+# Gambit Scheme FFI
+./ffi.ss mylib.h --gambit -o bindings.scm
+
+# C++ with name mangling (any target)
+./ffi.ss myclass.hpp -x c++ --guile -o bindings.scm
 ```
 
 ## Installation
@@ -58,6 +67,13 @@ export CHEZSCHEMELIBDIRS="/path/to/c-tools/lib:${CHEZSCHEMELIBDIRS}"
 - Template specializations
 - Generic templates gracefully skipped
 
+### Backend-Specific Features
+- **Chez**: `foreign-procedure`, `define-ftype` for structs
+- **Racket**: `ffi/unsafe`, `_fun` types, `define-ffi` helpers
+- **Guile**: `foreign-library-function`, struct layouts as lists
+- **Chicken**: `foreign-lambda`, `foreign-declare` for headers
+- **Gambit**: `c-lambda`, `c-declare` for inline C
+
 ### Supported Targets
 
 **Chez Scheme** (`--chez`, default):
@@ -81,6 +97,42 @@ export CHEZSCHEMELIBDIRS="/path/to/c-tools/lib:${CHEZSCHEMELIBDIRS}"
 (define-ffi-definer define-ffi lib)
 
 (define-ffi c-add (_fun _int _int -> _int) #:c-id "add")
+```
+
+**Guile** (`--guile`):
+```scheme
+(define-module (ffi mylib)
+  #:use-module (system foreign)
+  #:use-module (system foreign-library)
+  #:export (c-add c-multiply))
+
+(define-foreign-library libmylib
+  (dynamic-link "mylib"))
+
+(define c-add
+  (foreign-library-function libmylib "add"
+    #:return-type int
+    #:arg-types (list int int)))
+```
+
+**Chicken Scheme** (`--chicken`):
+```scheme
+(module mylib (c-add c-multiply)
+  (import scheme chicken foreign)
+
+  (foreign-declare "#include <mylib.h>")
+
+  (define c-add
+    (foreign-lambda int "add" int int)))
+```
+
+**Gambit Scheme** (`--gambit`):
+```scheme
+;; Gambit FFI bindings for mylib
+(c-declare "#include <mylib.h>")
+
+(define c-add
+  (c-lambda (int int) int "add"))
 ```
 
 ## Library Usage
@@ -132,48 +184,17 @@ export CHEZSCHEMELIBDIRS="/path/to/c-tools/lib:${CHEZSCHEMELIBDIRS}"
     cst-nodes))
 ```
 
-## Library Structure
-
-### Core `(c-tools core ...)`
-- `tokens` - Token types and predicates
-- `cst` - Concrete Syntax Trees with trivia
-- `conditions` - Exception hierarchy
-- `limits` - Security limits (DoS prevention)
-
-### AST `(c-tools ast ...)`
-- `c` - C type system and declarations
-- `cpp` - C++ extensions (namespaces, classes, templates)
-
-### Lexer `(c-tools lexer ...)`
-- `c` - C tokenizer
-- `cpp` - C++ tokenizer with raw strings, binary literals, etc.
-- Three API levels: tokens, CST nodes, diagnostics
-
-### Parser `(c-tools parser ...)`
-- `c` - C parser (closure pattern)
-- `cpp` - C++ parser with template support and >> splitting
-
-### Preprocessor `(c-tools preprocess ...)`
-- `c` - C preprocessor
-- `cpp` - C++ preprocessor
-
-### Codegen `(c-tools codegen ...)`
-- `chez/ffi` - Chez Scheme C FFI
-- `chez/cpp-ffi` - Chez Scheme C++ FFI
-- `racket/ffi` - Racket C FFI
-- `racket/cpp-ffi` - Racket C++ FFI
-- `mangle` - C++ name mangling (Itanium ABI)
-
-### Effects `(c-tools effects ...)`
-- `core` - Effect primitive (shift/reset)
-- `registry` - Effect composition
-- `files` - File I/O
-- `cpp/...` - Preprocessor effects
-- `cpp-lang/...` - Language context tracking
-
-## Known Limitations
+## Limitations
 
 - C++ constructors/destructors skipped (requires C wrapper functions)
 - Generic templates skipped (only specializations supported)
 - Virtual functions work but require proper object layout
 - Operator overloading not yet supported
+
+## Portability
+
+The library is written in (mostly) R6RS Scheme with minimal implementation-specific dependencies:
+
+- **Core libraries**: Pure R6RS (lexer, parser, AST, effects system)
+- **Utility library**: R6RS-compatible implementations of `format`, `box`, `make-parameter`, etc.
+- **Chez-specific**: Only file I/O operations (`lib/c-tools/effects/files.sls`)
