@@ -193,6 +193,7 @@ export CHEZSCHEMELIBDIRS="/path/to/c-tools/lib:${CHEZSCHEMELIBDIRS}"
 - Generic templates skipped (only specializations supported)
 - Virtual functions work but require proper object layout
 - Operator overloading not yet supported
+- C++ support requires Itanium ABI (GCC/Clang/etc). For MSVC, use a C wrapper or clang-cl.
 
 ## Portability
 
