@@ -21,6 +21,7 @@
         (prefix (c-tools codegen gambit ffi) gambit:)
         (prefix (c-tools codegen gambit cpp-ffi) gambit:)
         (prefix (c-tools codegen cffi ffi) cffi:)
+        (prefix (c-tools codegen cffi cpp-ffi) cffi:)
         (c-tools effects files)
         (c-tools effects cpp core)
         (c-tools effects cpp macros)
@@ -236,6 +237,26 @@
           (let* ([tokens (preprocess-file filename)]
                  [decls (parse-declarations tokens)]
                  [ffi-code (cffi:generate-ffi-code decls lib-name)])
+            (if output-file
+                (begin
+                  (when (file-exists? output-file)
+                    (delete-file output-file))
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (display ffi-code port))))
+                (display ffi-code))))))))
+
+(define (generate-cffi-cpp-ffi filename lib-name output-file)
+  ;; Common Lisp CFFI C++ generation pipeline
+  (with-file-system #f "."
+    (lambda ()
+      (with-effects '((cpp-include ())
+                      cpp-macros
+                      cpp-conditional)
+        (lambda ()
+          (let* ([tokens (preprocess-cpp-file filename)]
+                 [decls (parse-cpp-declarations tokens)]
+                 [ffi-code (cffi:generate-cpp-ffi-code decls lib-name)])
             (if output-file
                 (begin
                   (when (file-exists? output-file)
@@ -474,10 +495,7 @@
            (generate-gambit-c-ffi input-file lib-name output-file))]
       [(cffi)
        (if (eq? lang 'c++)
-           (begin
-             (display "Error: C++ not yet supported for CFFI backend\n")
-             (display "Note: CFFI C++ support requires wrapper generation\n")
-             (exit 1))
+           (generate-cffi-cpp-ffi input-file lib-name output-file)
            (generate-cffi-c-ffi input-file lib-name output-file))])
 
     (when output-file
