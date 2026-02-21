@@ -78,6 +78,15 @@
             (list 'bytes-read bytes-read max-header-size (get-location)))))
         c))
 
+    ;; Consume a character without updating line/column (for line continuations)
+    (define (advance-raw!)
+      (let ([c (get-char port)])
+        (when (char? c)
+          (set! bytes-read (+ bytes-read 1))
+          (perform (make-effect 'check-limit
+            (list 'bytes-read bytes-read max-header-size (get-location)))))
+        c))
+
     ;; Read while predicate holds, return string
     (define (read-while pred)
       (call-with-string-output-port
@@ -549,6 +558,20 @@
             [(char=? c #\')
              (let ([tok (tokenize-char-literal)])
                (loop (cons (make-cst-with-trivia tok) cst-nodes)))]
+
+            ;; Backslash-newline continuation (consume and continue)
+            [(char=? c #\\)
+             (capture-location!)
+             (advance!)  ;; consume backslash
+             (let ([c2 (peek)])
+               (if (and (char? c2) (char=? c2 #\newline))
+                   (begin
+                     (advance-raw!)  ;; consume newline WITHOUT incrementing line
+                     (set! column 1)   ;; reset column for new line
+                     (loop cst-nodes))  ;; continue without emitting token
+                   ;; Not a line continuation, treat as punctuator
+                   (let ([tok (make-token 'punctuator "\\" (get-location))])
+                     (loop (cons (make-cst-with-trivia tok) cst-nodes)))))]
 
             ;; Comment or division
             [(char=? c #\/)

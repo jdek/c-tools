@@ -26,6 +26,7 @@
           register-cpp-conditional!
           eval-const-expr)
   (import (rnrs base)
+          (rnrs arithmetic bitwise)
           (rnrs lists)
           (c-tools core tokens)
           (c-tools effects core)
@@ -37,7 +38,25 @@
     ;;   Evaluate a constant preprocessor expression, returns integer
     (if (null? tokens)
         0
-        (eval-expr tokens)))
+        (let-values ([(result remaining) (parse-logical-or tokens)])
+          result)))
+
+  ;;=======================================================================
+  ;; Recursive descent expression parser with proper precedence
+  ;;
+  ;; C preprocessor operator precedence (lowest to highest):
+  ;;   ||
+  ;;   &&
+  ;;   |
+  ;;   ^
+  ;;   &
+  ;;   == !=
+  ;;   < > <= >=
+  ;;   << >>
+  ;;   + -
+  ;;   * / %
+  ;;   unary: ! ~ - +
+  ;;   defined(...)
 
   ;; Token to integer conversion
   (define (token->int tok)
@@ -47,70 +66,245 @@
          (if (string? val)
              (string->number val)
              0))]
-      [(identifier-token? tok) 0]
+      [(identifier-token? tok) 0]  ;; undefined identifiers are 0
       [else 0]))
 
-  ;; Apply binary operator
-  (define (apply-op op left right)
-    (cond
-      [(equal? op "+") (+ left right)]
-      [(equal? op "-") (- left right)]
-      [(equal? op "*") (* left right)]
-      [(equal? op "/") (if (zero? right) 0 (div left right))]
-      [(equal? op "%") (if (zero? right) 0 (mod left right))]
-      [(equal? op "==") (if (= left right) 1 0)]
-      [(equal? op "!=") (if (= left right) 0 1)]
-      [(equal? op "<") (if (< left right) 1 0)]
-      [(equal? op ">") (if (> left right) 1 0)]
-      [(equal? op "<=") (if (<= left right) 1 0)]
-      [(equal? op ">=") (if (>= left right) 1 0)]
-      [(equal? op "&&") (if (and (not (zero? left)) (not (zero? right))) 1 0)]
-      [(equal? op "||") (if (or (not (zero? left)) (not (zero? right))) 1 0)]
-      [else 0]))
+  ;; Logical OR: expr || expr
+  (define (parse-logical-or tokens)
+    (let-values ([(left rest) (parse-logical-and tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest))
+                 (equal? (token-value (car rest)) "||"))
+            (let-values ([(right rest2) (parse-logical-and (cdr rest))])
+              (loop (if (or (not (zero? left)) (not (zero? right))) 1 0) rest2))
+            (values left rest)))))
 
-  ;; Expression evaluator (simplified)
-  (define (eval-expr tokens)
-    (cond
-      ;; Empty
-      [(null? tokens) 0]
+  ;; Logical AND: expr && expr
+  (define (parse-logical-and tokens)
+    (let-values ([(left rest) (parse-bitwise-or tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest))
+                 (equal? (token-value (car rest)) "&&"))
+            (let-values ([(right rest2) (parse-bitwise-or (cdr rest))])
+              (loop (if (and (not (zero? left)) (not (zero? right))) 1 0) rest2))
+            (values left rest)))))
 
-      ;; Single number token
-      [(and (= (length tokens) 1) (number-token? (car tokens)))
-       (token->int (car tokens))]
+  ;; Bitwise OR: expr | expr
+  (define (parse-bitwise-or tokens)
+    (let-values ([(left rest) (parse-bitwise-xor tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest))
+                 (equal? (token-value (car rest)) "|")
+                 ;; Make sure it's not ||
+                 (not (and (pair? (cdr rest))
+                           (punctuator? (cadr rest))
+                           (equal? (token-value (cadr rest)) "|"))))
+            (let-values ([(right rest2) (parse-bitwise-xor (cdr rest))])
+              (loop (bitwise-ior left right) rest2))
+            (values left rest)))))
 
-      ;; defined(X) operator
-      [(and (>= (length tokens) 4)
-            (identifier-token? (car tokens))
-            (eq? (token-value (car tokens)) 'defined)
-            (punctuator? (cadr tokens))
-            (equal? (token-value (cadr tokens)) "(")
-            (identifier-token? (caddr tokens)))
-       (if (symbol-defined? (token-value (caddr tokens))) 1 0)]
+  ;; Bitwise XOR: expr ^ expr
+  (define (parse-bitwise-xor tokens)
+    (let-values ([(left rest) (parse-bitwise-and tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest))
+                 (equal? (token-value (car rest)) "^"))
+            (let-values ([(right rest2) (parse-bitwise-and (cdr rest))])
+              (loop (bitwise-xor left right) rest2))
+            (values left rest)))))
 
-      ;; Binary operators - simple left-to-right evaluation
-      [else
-       (let loop ([toks tokens] [left 0] [op #f] [right-tokens '()])
-         (cond
-           [(null? toks)
-            (if op
-                (apply-op op left (eval-expr (reverse right-tokens)))
-                left)]
+  ;; Bitwise AND: expr & expr
+  (define (parse-bitwise-and tokens)
+    (let-values ([(left rest) (parse-equality tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest))
+                 (equal? (token-value (car rest)) "&")
+                 ;; Make sure it's not &&
+                 (not (and (pair? (cdr rest))
+                           (punctuator? (cadr rest))
+                           (equal? (token-value (cadr rest)) "&"))))
+            (let-values ([(right rest2) (parse-equality (cdr rest))])
+              (loop (bitwise-and left right) rest2))
+            (values left rest)))))
 
-           [(number-token? (car toks))
-            (if op
-                (loop (cdr toks) left op (cons (car toks) right-tokens))
-                (loop (cdr toks) (token->int (car toks)) op right-tokens))]
+  ;; Equality: expr == expr, expr != expr
+  (define (parse-equality tokens)
+    (let-values ([(left rest) (parse-relational tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest)))
+            (let ([op (token-value (car rest))])
+              (cond
+                [(equal? op "==")
+                 (let-values ([(right rest2) (parse-relational (cdr rest))])
+                   (loop (if (= left right) 1 0) rest2))]
+                [(equal? op "!=")
+                 (let-values ([(right rest2) (parse-relational (cdr rest))])
+                   (loop (if (= left right) 0 1) rest2))]
+                [else (values left rest)]))
+            (values left rest)))))
 
-           [(punctuator? (car toks))
-            (let ([op-str (token-value (car toks))])
-              (if (member op-str '("+" "-" "*" "/" "%" "==" "!=" "<" ">" "<=" ">=" "&&" "||"))
-                  (if op
-                      (loop toks (apply-op op left (eval-expr (reverse right-tokens))) #f '())
-                      (loop (cdr toks) left op-str right-tokens))
-                  (loop (cdr toks) left op right-tokens)))]
+  ;; Relational: expr < expr, expr > expr, expr <= expr, expr >= expr
+  (define (parse-relational tokens)
+    (let-values ([(left rest) (parse-shift tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest)))
+            (let ([op (token-value (car rest))])
+              (cond
+                [(equal? op "<")
+                 (let-values ([(right rest2) (parse-shift (cdr rest))])
+                   (loop (if (< left right) 1 0) rest2))]
+                [(equal? op ">")
+                 (let-values ([(right rest2) (parse-shift (cdr rest))])
+                   (loop (if (> left right) 1 0) rest2))]
+                [(equal? op "<=")
+                 (let-values ([(right rest2) (parse-shift (cdr rest))])
+                   (loop (if (<= left right) 1 0) rest2))]
+                [(equal? op ">=")
+                 (let-values ([(right rest2) (parse-shift (cdr rest))])
+                   (loop (if (>= left right) 1 0) rest2))]
+                [else (values left rest)]))
+            (values left rest)))))
 
-           [else
-            (loop (cdr toks) left op right-tokens)]))]))
+  ;; Shift: expr << expr, expr >> expr
+  (define (parse-shift tokens)
+    (let-values ([(left rest) (parse-additive tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest)))
+            (let ([op (token-value (car rest))])
+              (cond
+                [(equal? op "<<")
+                 (let-values ([(right rest2) (parse-additive (cdr rest))])
+                   (loop (bitwise-arithmetic-shift-left left right) rest2))]
+                [(equal? op ">>")
+                 (let-values ([(right rest2) (parse-additive (cdr rest))])
+                   (loop (bitwise-arithmetic-shift-right left right) rest2))]
+                [else (values left rest)]))
+            (values left rest)))))
+
+  ;; Additive: expr + expr, expr - expr
+  (define (parse-additive tokens)
+    (let-values ([(left rest) (parse-multiplicative tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest)))
+            (let ([op (token-value (car rest))])
+              (cond
+                [(equal? op "+")
+                 (let-values ([(right rest2) (parse-multiplicative (cdr rest))])
+                   (loop (+ left right) rest2))]
+                [(equal? op "-")
+                 (let-values ([(right rest2) (parse-multiplicative (cdr rest))])
+                   (loop (- left right) rest2))]
+                [else (values left rest)]))
+            (values left rest)))))
+
+  ;; Multiplicative: expr * expr, expr / expr, expr % expr
+  (define (parse-multiplicative tokens)
+    (let-values ([(left rest) (parse-unary tokens)])
+      (let loop ([left left] [rest rest])
+        (if (and (pair? rest)
+                 (punctuator? (car rest)))
+            (let ([op (token-value (car rest))])
+              (cond
+                [(equal? op "*")
+                 (let-values ([(right rest2) (parse-unary (cdr rest))])
+                   (loop (* left right) rest2))]
+                [(equal? op "/")
+                 (let-values ([(right rest2) (parse-unary (cdr rest))])
+                   (loop (if (zero? right) 0 (div left right)) rest2))]
+                [(equal? op "%")
+                 (let-values ([(right rest2) (parse-unary (cdr rest))])
+                   (loop (if (zero? right) 0 (mod left right)) rest2))]
+                [else (values left rest)]))
+            (values left rest)))))
+
+  ;; Unary: !expr, ~expr, -expr, +expr, defined(...)
+  (define (parse-unary tokens)
+    (if (null? tokens)
+        (values 0 '())
+        (let ([tok (car tokens)])
+          (cond
+            ;; defined(X)
+            [(and (identifier-token? tok)
+                  (eq? (token-value tok) 'defined)
+                  (pair? (cdr tokens))
+                  (punctuator? (cadr tokens))
+                  (equal? (token-value (cadr tokens)) "("))
+             (let ([rest (cddr tokens)])
+               (if (and (pair? rest)
+                        (identifier-token? (car rest)))
+                   (let ([name (token-value (car rest))]
+                         [rest2 (cdr rest)])
+                     ;; Skip closing )
+                     (if (and (pair? rest2)
+                              (punctuator? (car rest2))
+                              (equal? (token-value (car rest2)) ")"))
+                         (values (if (symbol-defined? name) 1 0) (cdr rest2))
+                         (values (if (symbol-defined? name) 1 0) rest2)))
+                   (values 0 rest)))]
+
+            ;; Unary !
+            [(and (punctuator? tok)
+                  (equal? (token-value tok) "!"))
+             (let-values ([(val rest) (parse-unary (cdr tokens))])
+               (values (if (zero? val) 1 0) rest))]
+
+            ;; Unary ~
+            [(and (punctuator? tok)
+                  (equal? (token-value tok) "~"))
+             (let-values ([(val rest) (parse-unary (cdr tokens))])
+               (values (bitwise-not val) rest))]
+
+            ;; Unary -
+            [(and (punctuator? tok)
+                  (equal? (token-value tok) "-"))
+             (let-values ([(val rest) (parse-unary (cdr tokens))])
+               (values (- val) rest))]
+
+            ;; Unary +
+            [(and (punctuator? tok)
+                  (equal? (token-value tok) "+"))
+             (let-values ([(val rest) (parse-unary (cdr tokens))])
+               (values val rest))]
+
+            ;; Primary expression
+            [else (parse-primary tokens)]))))
+
+  ;; Primary: number, identifier, (expr)
+  (define (parse-primary tokens)
+    (if (null? tokens)
+        (values 0 '())
+        (let ([tok (car tokens)])
+          (cond
+            ;; Number
+            [(number-token? tok)
+             (values (token->int tok) (cdr tokens))]
+
+            ;; Identifier (undefined = 0)
+            [(identifier-token? tok)
+             (values 0 (cdr tokens))]
+
+            ;; Parenthesized expression
+            [(and (punctuator? tok)
+                  (equal? (token-value tok) "("))
+             (let-values ([(val rest) (parse-logical-or (cdr tokens))])
+               ;; Skip closing )
+               (if (and (pair? rest)
+                        (punctuator? (car rest))
+                        (equal? (token-value (car rest)) ")"))
+                   (values val (cdr rest))
+                   (values val rest)))]
+
+            ;; Unknown - treat as 0
+            [else (values 0 (cdr tokens))]))))
 
   ;; Conditional compilation handler
   (define (with-cpp-conditional thunk)

@@ -25,12 +25,21 @@
           (c-tools lexer c)
           (only (c-tools utility) format last-pair))
 
+  ;; Conditional stack entry: (taken? . active?)
+  ;;   taken? - has a true branch been executed in this if-elif-else chain?
+  ;;   active? - are we currently executing this branch?
+
+  ;; Check if we should skip based on conditional stack
+  (define (should-skip? cond-stack)
+    (and (pair? cond-stack)
+         (not (cdr (car cond-stack)))))  ;; skip if top level is not active
+
   ;; Process a list of tokens, handling directives and expanding macros
   (define (preprocess-tokens tokens)
     ;;   Process a token stream, handling all preprocessor directives
     (let loop ([toks tokens]
                [output '()]
-               [skip-depth 0])  ;; > 0 when inside false conditional
+               [cond-stack '()])  ;; stack of (taken? . active?) pairs
 
       (if (null? toks)
           (reverse output)
@@ -43,15 +52,15 @@
                       [result (collect-directive-line (cdr toks) directive-line)]
                       [directive-tokens (car result)]
                       [remaining-tokens (cdr result)])
-                 (process-directive directive-tokens skip-depth
-                   (lambda (new-skip-depth)
+                 (process-directive directive-tokens cond-stack
+                   (lambda (new-cond-stack)
                      (loop remaining-tokens
                            output
-                           new-skip-depth))))]
+                           new-cond-stack))))]
 
               ;; Skip tokens inside false conditional
-              [(> skip-depth 0)
-               (loop (cdr toks) output skip-depth)]
+              [(should-skip? cond-stack)
+               (loop (cdr toks) output cond-stack)]
 
               ;; Identifier - might be a macro
               [(identifier-token? tok)
@@ -77,19 +86,19 @@
                                     [arg-tokens (flatten-args-with-commas-for-output args)]
                                     ;; Put args back in stream for macro expansion, not output
                                     [stream-tokens (append arg-tokens (list rparen) remaining)])
-                               (loop stream-tokens (cons lparen (cons tok output)) skip-depth))]
+                               (loop stream-tokens (cons lparen (cons tok output)) cond-stack))]
                            ;; Expanded - insert expanded tokens
                            [else
-                            (loop (append expanded remaining) output skip-depth)])))
+                            (loop (append expanded remaining) output cond-stack)])))
                      ;; No '(' - try object-like macro
                      (let ([expanded (expand-macro! (token-value tok) #f)])
                        (cond
                          ;; Undefined or painted - keep as-is
                          [(or (eq? expanded 'undefined) (eq? expanded 'painted))
-                          (loop (cdr toks) (cons tok output) skip-depth)]
+                          (loop (cdr toks) (cons tok output) cond-stack)]
                          ;; Expanded - insert expanded tokens
                          [else
-                          (loop (append expanded (cdr toks)) output skip-depth)]))))]
+                          (loop (append expanded (cdr toks)) output cond-stack)]))))]
 
               ;; EOF - done
               [(eof-token? tok)
@@ -97,11 +106,11 @@
 
               ;; Comment - skip
               [(comment-token? tok)
-               (loop (cdr toks) output skip-depth)]
+               (loop (cdr toks) output cond-stack)]
 
               ;; Other tokens - pass through
               [else
-               (loop (cdr toks) (cons tok output) skip-depth)])))))
+               (loop (cdr toks) (cons tok output) cond-stack)])))))
 
   ;; Collect tokens until end of line (for directive processing)
   ;; Returns (collected-tokens . remaining-tokens)
@@ -123,62 +132,72 @@
                (loop (cdr toks) (cons tok collected))])))))
 
   ;; Process a preprocessor directive
-  (define (process-directive tokens skip-depth continue)
-    ;;   Process a directive and call CONTINUE with new skip depth
+  (define (process-directive tokens cond-stack continue)
+    ;;   Process a directive and call CONTINUE with new cond-stack
     (if (null? tokens)
-        (continue skip-depth)
+        (continue cond-stack)
 
         (let ([first (car tokens)])
           (cond
             ;; #define
             [(and (identifier-token? first)
                   (eq? (token-value first) 'define))
-             (if (> skip-depth 0)
-                 (continue skip-depth)
-                 (process-define (cdr tokens) skip-depth continue))]
+             (if (should-skip? cond-stack)
+                 (continue cond-stack)
+                 (process-define (cdr tokens) cond-stack continue))]
 
             ;; #undef
             [(and (identifier-token? first)
                   (eq? (token-value first) 'undef))
-             (if (> skip-depth 0)
-                 (continue skip-depth)
-                 (process-undef (cdr tokens) skip-depth continue))]
+             (if (should-skip? cond-stack)
+                 (continue cond-stack)
+                 (process-undef (cdr tokens) cond-stack continue))]
 
             ;; #ifdef
             [(and (identifier-token? first)
                   (eq? (token-value first) 'ifdef))
-             (process-ifdef (cdr tokens) skip-depth continue)]
+             (process-ifdef (cdr tokens) cond-stack continue)]
 
             ;; #ifndef
             [(and (identifier-token? first)
                   (eq? (token-value first) 'ifndef))
-             (process-ifndef (cdr tokens) skip-depth continue)]
+             (process-ifndef (cdr tokens) cond-stack continue)]
 
             ;; #if
             [(and (identifier-token? first)
                   (eq? (token-value first) 'if))
-             (process-if (cdr tokens) skip-depth continue)]
+             (process-if (cdr tokens) cond-stack continue)]
+
+            ;; #elif
+            [(and (identifier-token? first)
+                  (eq? (token-value first) 'elif))
+             (process-elif (cdr tokens) cond-stack continue)]
+
+            ;; #else
+            [(and (identifier-token? first)
+                  (eq? (token-value first) 'else))
+             (process-else (cdr tokens) cond-stack continue)]
 
             ;; #endif
             [(and (identifier-token? first)
                   (eq? (token-value first) 'endif))
-             (continue (max 0 (- skip-depth 1)))]
+             (process-endif (cdr tokens) cond-stack continue)]
 
             ;; #include
             [(and (identifier-token? first)
                   (eq? (token-value first) 'include))
-             (if (> skip-depth 0)
-                 (continue skip-depth)
-                 (process-include (cdr tokens) skip-depth continue))]
+             (if (should-skip? cond-stack)
+                 (continue cond-stack)
+                 (process-include (cdr tokens) cond-stack continue))]
 
             ;; Unknown directive - ignore
             [else
-             (continue skip-depth)]))))
+             (continue cond-stack)]))))
 
   ;; Process #define directive
-  (define (process-define tokens skip-depth continue)
+  (define (process-define tokens cond-stack continue)
     (if (null? tokens)
-        (continue skip-depth)
+        (continue cond-stack)
         (let ([name-tok (car tokens)])
           (if (identifier-token? name-tok)
               (let ([name (token-value name-tok)]
@@ -190,12 +209,12 @@
                     ;; Function-like macro - parse parameters
                     (let-values ([(params body-start) (parse-macro-params (cdr rest))])
                       (define-macro! name params body-start)
-                      (continue skip-depth))
+                      (continue cond-stack))
                     ;; Object-like macro
                     (begin
                       (define-macro! name #f rest)
-                      (continue skip-depth))))
-              (continue skip-depth)))))
+                      (continue cond-stack))))
+              (continue cond-stack)))))
 
   ;; parse-macro-params : (list token) => (values (list symbol) (list token))
   ;;   Parse (a, b, c) or (a, b, ...) and return (values params remaining-tokens)
@@ -295,45 +314,113 @@
                      (cons comma (append (reverse arg-tokens) result))))]))))
 
   ;; Process #undef directive
-  (define (process-undef tokens skip-depth continue)
+  (define (process-undef tokens cond-stack continue)
     (if (null? tokens)
-        (continue skip-depth)
+        (continue cond-stack)
         (let ([name-tok (car tokens)])
           (if (identifier-token? name-tok)
               (begin
                 (undefine-macro! (token-value name-tok))
-                (continue skip-depth))
-              (continue skip-depth)))))
+                (continue cond-stack))
+              (continue cond-stack)))))
 
   ;; Process #ifdef directive
-  (define (process-ifdef tokens skip-depth continue)
+  (define (process-ifdef tokens cond-stack continue)
+    ;;   Push new conditional level based on whether symbol is defined
     (if (null? tokens)
-        (continue (+ skip-depth 1))
+        ;; No condition - push inactive level
+        (continue (cons (cons #f #f) cond-stack))
         (let ([name-tok (car tokens)])
           (if (identifier-token? name-tok)
-              (let ([defined? (eval-conditional! 'ifdef (token-value name-tok))])
-                (continue (if defined? skip-depth (+ skip-depth 1))))
-              (continue (+ skip-depth 1))))))
+              (let* ([parent-active? (or (null? cond-stack)
+                                         (cdr (car cond-stack)))]
+                     [defined? (if parent-active?
+                                   (eval-conditional! 'ifdef (token-value name-tok))
+                                   #f)]
+                     [active? (and parent-active? defined?)])
+                (continue (cons (cons defined? active?) cond-stack)))
+              ;; Invalid condition - push inactive level
+              (continue (cons (cons #f #f) cond-stack))))))
 
   ;; Process #ifndef directive
-  (define (process-ifndef tokens skip-depth continue)
+  (define (process-ifndef tokens cond-stack continue)
+    ;;   Push new conditional level based on whether symbol is not defined
     (if (null? tokens)
-        (continue (+ skip-depth 1))
+        ;; No condition - push inactive level
+        (continue (cons (cons #f #f) cond-stack))
         (let ([name-tok (car tokens)])
           (if (identifier-token? name-tok)
-              (let ([not-defined? (eval-conditional! 'ifndef (token-value name-tok))])
-                (continue (if not-defined? skip-depth (+ skip-depth 1))))
-              (continue (+ skip-depth 1))))))
+              (let* ([parent-active? (or (null? cond-stack)
+                                         (cdr (car cond-stack)))]
+                     [not-defined? (if parent-active?
+                                       (eval-conditional! 'ifndef (token-value name-tok))
+                                       #f)]
+                     [active? (and parent-active? not-defined?)])
+                (continue (cons (cons not-defined? active?) cond-stack)))
+              ;; Invalid condition - push inactive level
+              (continue (cons (cons #f #f) cond-stack))))))
 
   ;; Process #if directive
-  (define (process-if tokens skip-depth continue)
-    (let ([result (eval-conditional! 'if tokens)])
-      (continue (if result skip-depth (+ skip-depth 1)))))
+  (define (process-if tokens cond-stack continue)
+    ;;   Push new conditional level based on constant expression
+    (let* ([parent-active? (or (null? cond-stack)
+                               (cdr (car cond-stack)))]
+           [result (if parent-active?
+                       (eval-conditional! 'if tokens)
+                       #f)]
+           [active? (and parent-active? result)])
+      (continue (cons (cons result active?) cond-stack))))
+
+  ;; Process #elif directive
+  (define (process-elif tokens cond-stack continue)
+    ;;   Switch to elif branch if no previous branch was taken
+    (if (null? cond-stack)
+        ;; #elif without #if - ignore
+        (continue cond-stack)
+        (let* ([top (car cond-stack)]
+               [parent-stack (cdr cond-stack)]
+               [taken? (car top)]
+               [parent-active? (or (null? parent-stack)
+                                   (cdr (car parent-stack)))])
+          (cond
+            ;; Already took a branch - skip elif
+            [taken?
+             (continue (cons (cons #t #f) parent-stack))]
+            ;; Parent is inactive - stay inactive
+            [(not parent-active?)
+             (continue (cons (cons #f #f) parent-stack))]
+            ;; Evaluate elif condition
+            [else
+             (let* ([result (eval-conditional! 'elif tokens)]
+                    [active? (and parent-active? result)])
+               (continue (cons (cons result active?) parent-stack)))]))))
+
+  ;; Process #else directive
+  (define (process-else tokens cond-stack continue)
+    ;;   Switch to else branch if no previous branch was taken
+    (if (null? cond-stack)
+        ;; #else without #if - ignore
+        (continue cond-stack)
+        (let* ([top (car cond-stack)]
+               [parent-stack (cdr cond-stack)]
+               [taken? (car top)]
+               [parent-active? (or (null? parent-stack)
+                                   (cdr (car parent-stack)))]
+               [active? (and parent-active? (not taken?))])
+          (continue (cons (cons #t active?) parent-stack)))))
+
+  ;; Process #endif directive
+  (define (process-endif tokens cond-stack continue)
+    ;;   Pop conditional level
+    (if (null? cond-stack)
+        ;; #endif without #if - ignore
+        (continue cond-stack)
+        (continue (cdr cond-stack))))
 
   ;; Process #include directive
-  (define (process-include tokens skip-depth continue)
+  (define (process-include tokens cond-stack continue)
     (if (null? tokens)
-        (continue skip-depth)
+        (continue cond-stack)
         (let ([tok (car tokens)])
           (cond
             ;; #include <file>
@@ -342,17 +429,17 @@
                (if filename
                    (begin
                      (resolve-include! filename #t)
-                     (continue skip-depth))
-                   (continue skip-depth)))]
+                     (continue cond-stack))
+                   (continue cond-stack)))]
 
             ;; #include "file"
             [(string-literal? tok)
              (let ([filename (token-value tok)])
                (resolve-include! filename #f)
-               (continue skip-depth))]
+               (continue cond-stack))]
 
             [else
-             (continue skip-depth)]))))
+             (continue cond-stack)]))))
 
   ;; Extract filename from <...> include
   (define (extract-angle-include tokens)
