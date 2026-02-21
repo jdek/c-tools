@@ -25,9 +25,32 @@
         (c-tools effects files)
         (c-tools effects cpp core)
         (c-tools effects cpp macros)
+        (c-tools effects cpp symbols)
         (c-tools effects cpp includes)
         (c-tools effects cpp conditionals)
         (c-tools effects registry))
+
+;;=======================================================================
+;; Predefined macros
+
+(define *predefined-macros*
+  ;; Standard C predefined macros
+  '((__STDC__ . (1))
+    (__STDC_VERSION__ . (201112))  ;; C11
+    ;; Common compiler attributes that expand to empty
+    (__attribute__)
+    (__declspec)
+    (__cdecl)
+    (__stdcall)
+    (__fastcall)
+    (__inline)
+    (__forceinline)
+    (__restrict)
+    (__extension__)
+    (__asm__)
+    (__volatile__)
+    (_Noreturn)
+    (_Thread_local)))
 
 ;;=======================================================================
 ;; Main FFI generation pipeline
@@ -43,11 +66,13 @@
 
 (define (generate-c-ffi filename lib-name output-file)
   ;; C FFI generation pipeline
-  (let ([include-dir (get-directory filename)])
+  (let* ([include-dir (get-directory filename)]
+         [parent-dir (get-directory include-dir)])
     (with-file-system #f "."
       (lambda ()
-        (with-effects `((cpp-include (,include-dir))
-                        cpp-macros
+        (with-effects `((cpp-include (,parent-dir ,include-dir))
+                        cpp-symbols
+                        (cpp-macros ,*predefined-macros*)
                         cpp-conditional)
           (lambda ()
             (let* ([tokens (preprocess-file filename)]
@@ -464,6 +489,7 @@
   ;; Force effect registration by referencing the register functions
   (register-cpp-include!)
   (register-cpp-macros!)
+  (register-cpp-symbols!)
   (register-cpp-conditional!)
 
   (let* ([args (command-line-arguments)]

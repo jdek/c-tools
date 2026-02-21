@@ -33,13 +33,17 @@
           (c-tools effects cpp core)
           (c-tools effects registry))
 
+  ;; Ensure value is a number (convert #f to 0)
+  (define (ensure-number val)
+    (if (number? val) val 0))
+
   ;; Simple constant expression evaluator for #if directives
   (define (eval-const-expr tokens)
     ;;   Evaluate a constant preprocessor expression, returns integer
     (if (null? tokens)
         0
         (let-values ([(result remaining) (parse-logical-or tokens)])
-          result)))
+          (ensure-number result))))
 
   ;;=======================================================================
   ;; Recursive descent expression parser with proper precedence
@@ -142,10 +146,10 @@
               (cond
                 [(equal? op "==")
                  (let-values ([(right rest2) (parse-relational (cdr rest))])
-                   (loop (if (= left right) 1 0) rest2))]
+                   (loop (if (= (ensure-number left) (ensure-number right)) 1 0) rest2))]
                 [(equal? op "!=")
                  (let-values ([(right rest2) (parse-relational (cdr rest))])
-                   (loop (if (= left right) 0 1) rest2))]
+                   (loop (if (= (ensure-number left) (ensure-number right)) 0 1) rest2))]
                 [else (values left rest)]))
             (values left rest)))))
 
@@ -159,16 +163,16 @@
               (cond
                 [(equal? op "<")
                  (let-values ([(right rest2) (parse-shift (cdr rest))])
-                   (loop (if (< left right) 1 0) rest2))]
+                   (loop (if (< (ensure-number left) (ensure-number right)) 1 0) rest2))]
                 [(equal? op ">")
                  (let-values ([(right rest2) (parse-shift (cdr rest))])
-                   (loop (if (> left right) 1 0) rest2))]
+                   (loop (if (> (ensure-number left) (ensure-number right)) 1 0) rest2))]
                 [(equal? op "<=")
                  (let-values ([(right rest2) (parse-shift (cdr rest))])
-                   (loop (if (<= left right) 1 0) rest2))]
+                   (loop (if (<= (ensure-number left) (ensure-number right)) 1 0) rest2))]
                 [(equal? op ">=")
                  (let-values ([(right rest2) (parse-shift (cdr rest))])
-                   (loop (if (>= left right) 1 0) rest2))]
+                   (loop (if (>= (ensure-number left) (ensure-number right)) 1 0) rest2))]
                 [else (values left rest)]))
             (values left rest)))))
 
@@ -322,7 +326,7 @@
              ;; eval-const-expr calls symbol-defined?, so use loop
              (loop (lambda ()
                (let ([result (eval-const-expr condition)])
-                 (k (not (zero? result))))))]
+                 (k result))))]
             [else
              (k #f)])))
       (thunk)))

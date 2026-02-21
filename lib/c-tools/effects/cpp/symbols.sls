@@ -3,7 +3,8 @@
 ;; Tracks defined symbols for #ifdef/#ifndef by delegating to macro handler
 
 (library (c-tools effects cpp symbols)
-  (export with-cpp-symbols)
+  (export with-cpp-symbols
+          register-cpp-symbols!)
   (import (rnrs base)
           (c-tools effects core)
           (c-tools effects registry))
@@ -26,7 +27,11 @@
   ;;=========================================================================
   ;; Registration
 
-  (register-effect! 'cpp-symbols
-    (lambda (spec thunk)
-      (with-cpp-symbols thunk)))
+  (define (register-cpp-symbols!)
+    (register-effect! 'cpp-symbols
+      (lambda (spec thunk)
+        (with-cpp-symbols thunk))))
+
+  ;; Auto-register on load
+  (register-cpp-symbols!)
 )

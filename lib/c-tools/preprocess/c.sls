@@ -165,22 +165,22 @@
              (process-ifndef (cdr tokens) cond-stack continue)]
 
             ;; #if
-            [(and (identifier-token? first)
+            [(and (or (identifier-token? first) (keyword-token? first))
                   (eq? (token-value first) 'if))
              (process-if (cdr tokens) cond-stack continue)]
 
             ;; #elif
-            [(and (identifier-token? first)
+            [(and (or (identifier-token? first) (keyword-token? first))
                   (eq? (token-value first) 'elif))
              (process-elif (cdr tokens) cond-stack continue)]
 
             ;; #else
-            [(and (identifier-token? first)
+            [(and (or (identifier-token? first) (keyword-token? first))
                   (eq? (token-value first) 'else))
              (process-else (cdr tokens) cond-stack continue)]
 
             ;; #endif
-            [(and (identifier-token? first)
+            [(and (or (identifier-token? first) (keyword-token? first))
                   (eq? (token-value first) 'endif))
              (process-endif (cdr tokens) cond-stack continue)]
 
@@ -368,9 +368,11 @@
                                (cdr (car cond-stack)))]
            [result (if parent-active?
                        (eval-conditional! 'if tokens)
-                       #f)]
-           [active? (and parent-active? result)])
-      (continue (cons (cons result active?) cond-stack) '())))
+                       0)]
+           [taken? (and (number? result) (not (zero? result)))]
+           [active? (and parent-active? taken?)])
+      ;;(display (format "#if: result=~a taken?=~a active?=~a\n" result taken? active?))
+      (continue (cons (cons taken? active?) cond-stack) '())))
 
   ;; Process #elif directive
   (define (process-elif tokens cond-stack continue)
@@ -393,8 +395,9 @@
             ;; Evaluate elif condition
             [else
              (let* ([result (eval-conditional! 'elif tokens)]
-                    [active? (and parent-active? result)])
-               (continue (cons (cons result active?) parent-stack) '()))]))))
+                    [taken? (and (number? result) (not (zero? result)))]
+                    [active? (and parent-active? taken?)])
+               (continue (cons (cons taken? active?) parent-stack) '()))]))))
 
   ;; Process #else directive
   (define (process-else tokens cond-stack continue)
@@ -408,6 +411,7 @@
                [parent-active? (or (null? parent-stack)
                                    (cdr (car parent-stack)))]
                [active? (and parent-active? (not taken?))])
+          ;;(display (format "#else: taken?=~a parent-active?=~a active?=~a\n" taken? parent-active? active?))
           (continue (cons (cons #t active?) parent-stack) '()))))
 
   ;; Process #endif directive
@@ -455,6 +459,15 @@
                           [preprocessed (preprocess-tokens inc-tokens)])
                      (continue cond-stack preprocessed))
                    (continue cond-stack '())))]
+
+            ;; #include MACRO - expand macro and retry
+            [(identifier-token? tok)
+             (let ([expanded (expand-macro! (token-value tok) #f)])
+               (if (or (eq? expanded 'undefined) (eq? expanded 'painted))
+                   ;; Macro not defined or painted, skip include
+                   (continue cond-stack '())
+                   ;; Macro expanded, process the result as include path
+                   (process-include expanded cond-stack continue)))]
 
             [else
              (continue cond-stack '())]))))

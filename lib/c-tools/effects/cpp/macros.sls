@@ -198,9 +198,21 @@
   ;; Main macro handler
   ;; Combines cpp-define, cpp-undef, cpp-expand, and cpp-symbol into one handler
   ;; with shared state
-  (define (with-cpp-macros thunk)
+  ;; predefs: optional list of (name . body) pairs for predefined macros
+  (define (with-cpp-macros thunk . predefs)
     (let ([macros (make-eq-hashtable)]      ;; symbol -> macro-def
           [painted (make-eq-hashtable)])    ;; symbol -> #t (blue paint)
+
+      ;; Install predefined macros
+      (when (and (pair? predefs) (list? (car predefs)))
+        (for-each
+          (lambda (predef)
+            (let ([name (car predef)]
+                  [body (cdr predef)])
+              ;; body can be a list of tokens or #f for empty expansion
+              (let ([tokens (if (list? body) body '())])
+                (hashtable-set! macros name (make-macro-def name #f tokens)))))
+          (car predefs)))
 
       ;; Innermost: cpp-symbol (query if defined)
       (with-handler 'cpp-symbol
@@ -282,7 +294,11 @@
   (define (register-cpp-macros!)
     (register-effect! 'cpp-macros
       (lambda (spec thunk)
-        (with-cpp-macros thunk))))
+        ;; spec can be 'cpp-macros or (cpp-macros . predefs)
+        ;; where predefs is a list of (name . body) pairs
+        (if (pair? spec)
+            (with-cpp-macros thunk (cdr spec))
+            (with-cpp-macros thunk)))))
 
   ;; Auto-register on load
   (register-cpp-macros!))
