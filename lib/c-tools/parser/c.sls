@@ -26,6 +26,8 @@
     (define pos 0)
     (define token-list (list->vector tokens))
     (define token-count (vector-length token-list))
+    (define pending-struct-decls '())  ;; Inline struct/union definitions
+    (define anon-struct-counter 0)  ;; Counter for anonymous structs
 
     ;; Token operations
     (define (peek)
@@ -48,6 +50,11 @@
     (define (at-eof?)
       (let ([tok (peek)])
         (or (not tok) (eof-token? tok))))
+
+    ;; Generate unique name for anonymous struct
+    (define (generate-anonymous-struct-name)
+      (set! anon-struct-counter (+ anon-struct-counter 1))
+      (string->symbol (format "__anon_struct_~a" anon-struct-counter)))
 
     ;; Token predicates
     (define (is-keyword? tok kw)
@@ -166,10 +173,41 @@
 
     ;; Parse struct/union type
     (define (parse-struct-or-union-type kind)
-      (if (is-identifier? (peek))
-          (let ([name (token-value (advance!))])
-            (make-named-type kind name))
-          (parse-error (format "Expected ~a name" kind))))
+      (cond
+        ;; struct/union name { ... } - inline definition
+        [(and (is-identifier? (peek))
+              (is-punct? (peek-ahead 1) "{"))
+         (let ([name (token-value (advance!))])
+           (expect-punct "{")
+           (let ([fields (parse-field-list)])
+             (expect-punct "}")
+             ;; Register struct definition for later emission
+             (set! pending-struct-decls
+               (cons (if (eq? kind 'struct)
+                         (make-struct-decl name fields)
+                         (make-union-decl name fields))
+                     pending-struct-decls))
+             ;; Return named type reference
+             (make-named-type kind name)))]
+        ;; struct/union name - forward declaration or reference
+        [(is-identifier? (peek))
+         (let ([name (token-value (advance!))])
+           (make-named-type kind name))]
+        ;; struct/union { ... } - anonymous
+        [(is-punct? (peek) "{")
+         (advance!)
+         (let ([fields (parse-field-list)])
+           (expect-punct "}")
+           ;; For anonymous structs, generate a unique name
+           (let ([anon-name (generate-anonymous-struct-name)])
+             (set! pending-struct-decls
+               (cons (if (eq? kind 'struct)
+                         (make-struct-decl anon-name fields)
+                         (make-union-decl anon-name fields))
+                     pending-struct-decls))
+             (make-named-type kind anon-name)))]
+        [else
+         (parse-error (format "Expected ~a name or {" kind))]))
 
     ;; Parse enum type
     (define (parse-enum-type)
@@ -305,16 +343,24 @@
            (values name type)])))
 
     ;; Skip to closing bracket (array size expressions)
+    ;; Consumes tokens inside [] but leaves the final ] for expect-punct
     (define (skip-to-bracket)
       (let loop ([depth 1])
-        (let ([tok (advance!)])
+        (let ([tok (peek)])
           (cond
             [(not tok) (parse-error "Unexpected end of input")]
-            [(is-punct? tok "[") (loop (+ depth 1))]
             [(is-punct? tok "]")
-             (when (> depth 1)
-               (loop (- depth 1)))]
-            [else (loop depth)]))))
+             (if (= depth 1)
+                 #f  ;; Found closing bracket, leave it for expect-punct
+                 (begin
+                   (advance!)  ;; Consume nested ]
+                   (loop (- depth 1))))]
+            [(is-punct? tok "[")
+             (advance!)
+             (loop (+ depth 1))]
+            [else
+             (advance!)  ;; Consume other tokens
+             (loop depth)]))))
 
     ;;=======================================================================
     ;; Declaration Parsing
@@ -505,7 +551,8 @@
 
     (let loop ([decls '()])
       (if (at-eof?)
-          (reverse decls)
+          ;; Prepend pending struct declarations before returning
+          (append (reverse pending-struct-decls) (reverse decls))
           (let ([decl (parse-declaration)])
             (if decl
                 (loop (cons decl decls))
