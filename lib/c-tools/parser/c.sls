@@ -14,6 +14,7 @@
           (c-tools ast c)
           (c-tools core conditions)
           (c-tools core tokens)
+          (c-tools effects cpp conditionals)
           (only (c-tools utility) format))
 
   ;; Parser entry point
@@ -554,24 +555,33 @@
                         (loop (cons enum enums) (+ (enumerator-value enum) 1))))
                   (reverse (cons enum enums)))))))
 
-    ;; Skip enumerator value expression
-    ;; Skips tokens until we hit , or } at depth 0
-    (define (skip-enum-value)
-      (let loop ([depth 0])
+    ;; Collect enumerator value expression tokens
+    ;; Collects tokens until we hit , or } at depth 0
+    ;; Converts number tokens from C format to Scheme integers
+    (define (collect-enum-value-tokens)
+      (let loop ([depth 0] [tokens '()])
         (let ([tok (peek)])
           (cond
             [(not tok) (parse-error "Unexpected end in enum value")]
             [(and (= depth 0) (or (is-punct? tok ",") (is-punct? tok "}")))
-             #f]  ;; Done, leave , or } for caller
+             (reverse tokens)]  ;; Done, return collected tokens
             [(or (is-punct? tok "(") (is-punct? tok "[") (is-punct? tok "{"))
-             (advance!)
-             (loop (+ depth 1))]
+             (let ([t (advance!)])
+               (loop (+ depth 1) (cons t tokens)))]
             [(or (is-punct? tok ")") (is-punct? tok "]") (is-punct? tok "}"))
-             (advance!)
-             (loop (- depth 1))]
+             (let ([t (advance!)])
+               (loop (- depth 1) (cons t tokens)))]
+            ;; Convert number tokens from C syntax to Scheme integers
+            [(number-token? tok)
+             (let* ([t (advance!)]
+                    [num-val (parse-c-number (token-value t))]
+                    [new-tok (make-token 'number
+                                        (number->string num-val)
+                                        (token-location t))])
+               (loop depth (cons new-tok tokens)))]
             [else
-             (advance!)
-             (loop depth)]))))
+             (let ([t (advance!)])
+               (loop depth (cons t tokens)))]))))
 
     ;; Parse single enumerator
     (define (parse-enumerator current-value)
@@ -581,23 +591,23 @@
           [(not (identifier-token? tok))
            ;; Not an enumerator - might be malformed macro expansion
            ;; Skip to next comma or closing brace
-           (skip-enum-value)
-           ;; Return dummy enumerator
-           (make-enumerator 'unknown current-value)]
+           (let ([tokens (collect-enum-value-tokens)])
+             ;; Return dummy enumerator
+             (make-enumerator 'unknown current-value))]
           [else
            (let ([name (token-value (expect-identifier))])
              (let ([val (if (is-punct? (peek) "=")
                             (begin
                               (advance!)
-                              (let ([tok (peek)])
-                                (if (number-token? tok)
-                                    (begin
-                                      (advance!)
-                                      (parse-c-number (token-value tok)))
-                                    (begin
-                                      ;; Complex expression, skip it and use current value
-                                      (skip-enum-value)
-                                      current-value))))
+                              ;; Collect all tokens for the expression
+                              (let ([expr-tokens (collect-enum-value-tokens)])
+                                (if (null? expr-tokens)
+                                    current-value
+                                    ;; Evaluate constant expression
+                                    (let ([result (eval-const-expr expr-tokens)])
+                                      (if (number? result)
+                                          result
+                                          current-value)))))
                             current-value)])
                (make-enumerator name val)))])))
 
