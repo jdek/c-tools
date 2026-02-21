@@ -182,7 +182,12 @@
         [(null? keywords) 'int]
         [(equal? keywords '(void)) 'void]
         [(equal? keywords '(char)) 'char]
-        [(memq 'short keywords) 'short]
+        ;; char with signedness
+        [(and (memq 'unsigned keywords) (memq 'char keywords)) 'unsigned-char]
+        [(and (memq 'signed keywords) (memq 'char keywords)) 'signed-char]
+        ;; short with signedness (check before plain short)
+        [(and (memq 'unsigned keywords) (memq 'short keywords)) 'unsigned-short]
+        [(memq 'short keywords) 'short]  ;; covers 'short' and 'signed short'
         [(memq 'float keywords) 'float]
         [(memq 'double keywords)
          (if (memq 'long keywords) 'long-double 'double)]
@@ -191,8 +196,8 @@
            (if (>= long-count 2)
                (if (memq 'unsigned keywords) 'unsigned-long-long 'long-long)
                (if (memq 'unsigned keywords) 'unsigned-long 'long)))]
-        [(memq 'unsigned keywords) 'unsigned]
-        [(memq 'signed keywords) 'int]
+        [(memq 'unsigned keywords) 'unsigned]  ;; covers 'unsigned' and 'unsigned int'
+        [(memq 'signed keywords) 'int]  ;; covers 'signed' and 'signed int'
         [else 'int]))
 
     ;; Parse struct/union type

@@ -39,7 +39,7 @@
       [(void) 'void]
       [(char) 'char]
       [(signed-char) 'char]
-      [(unsigned-char) 'unsigned-char]
+      [(unsigned-char) 'unsigned-8]
       [(short) 'short]
       [(unsigned-short) 'unsigned-short]
       [(int) 'int]
