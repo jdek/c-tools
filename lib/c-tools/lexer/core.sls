@@ -508,12 +508,20 @@
                     [eof-cst (make-cst-node eof-token (consume-trivia!) '())])
                (reverse (cons eof-cst cst-nodes)))]
 
-            ;; Preprocessor directive
+            ;; Preprocessor directive or ## operator
             [(char=? c #\#)
              (capture-location!)
              (advance!)
-             (let ([tok (make-token 'directive "#" (get-location))])
-               (loop (cons (make-cst-with-trivia tok) cst-nodes)))]
+             (let ([c2 (peek)])
+               (if (and (char? c2) (char=? c2 #\#))
+                   ;; ## token pasting operator
+                   (begin
+                     (advance!)
+                     (let ([tok (make-token 'punctuator "##" (get-location))])
+                       (loop (cons (make-cst-with-trivia tok) cst-nodes))))
+                   ;; Single # directive
+                   (let ([tok (make-token 'directive "#" (get-location))])
+                     (loop (cons (make-cst-with-trivia tok) cst-nodes)))))]
 
             ;; Identifier, keyword, or raw string literal (C++)
             [(c-identifier-start? c)

@@ -190,11 +190,45 @@
   ;; Rescan tokens for further macro expansion
   (define (rescan-tokens tokens painted-table macros k loop)
     ;;   Recursively expand macros in token list, respecting blue paint
-    ;; For now, just return tokens unchanged
-    ;; Full rescanning would require re-entering the expansion handler
-    ;; which is complex and will be implemented when we have the full preprocessor
-    tokens)
-
+    ;;   Checks macros directly instead of using effects to avoid handler issues
+    (let scan ([toks tokens] [output '()])
+      (if (null? toks)
+          (reverse output)
+          (let ([tok (car toks)])
+            (cond
+              ;; Identifier - might be macro
+              [(identifier-token? tok)
+               (let ([name (token-value tok)])
+                 ;; Check if painted (blue paint prevents expansion)
+                 (if (hashtable-ref painted-table name #f)
+                     ;; Painted - don't expand
+                     (scan (cdr toks) (cons tok output))
+                     ;; Not painted - check if it's a macro and expand
+                     (let ([macro (hashtable-ref macros name #f)])
+                       (if (not macro)
+                           ;; Not a macro - keep token
+                           (scan (cdr toks) (cons tok output))
+                           ;; Found macro - expand if it's object-like
+                           (let ([params (macro-def-params macro)]
+                                 [body (macro-def-body macro)])
+                             (if params
+                                 ;; Function-like macro without args - keep as token
+                                 (scan (cdr toks) (cons tok output))
+                                 ;; Object-like macro - expand it
+                                 (let* ([location (if (pair? body)
+                                                     (token-location (car body))
+                                                     (macro-expansion-location))]
+                                        [substituted body])
+                                   ;; Apply blue paint
+                                   (hashtable-set! painted-table name #t)
+                                   ;; Recursively rescan
+                                   (let ([rescanned (scan substituted '())])
+                                     ;; Remove blue paint
+                                     (hashtable-delete! painted-table name)
+                                     ;; Continue scanning with expanded tokens
+                                     (scan (cdr toks) (append (reverse rescanned) output))))))))))]
+              ;; Other tokens - pass through
+              [else (scan (cdr toks) (cons tok output))])))))
   ;; Main macro handler
   ;; Combines cpp-define, cpp-undef, cpp-expand, and cpp-symbol into one handler
   ;; with shared state
@@ -301,4 +335,4 @@
             (with-cpp-macros thunk)))))
 
   ;; Auto-register on load
-  (register-cpp-macros!))
+  (define dummy-to-trigger-registration (register-cpp-macros!)))

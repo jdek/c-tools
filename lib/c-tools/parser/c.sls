@@ -511,14 +511,24 @@
       (let loop ([fields '()])
         (if (is-punct? (peek) "}")
             (reverse fields)
-            (loop (cons (parse-field) fields)))))
+            ;; parse-field now returns a list of fields
+            (loop (append (reverse (parse-field)) fields)))))
 
-    ;; Parse single field
+    ;; Parse single field (may have multiple comma-separated declarators)
     (define (parse-field)
-      (let ([type (parse-type)])
-        (let-values ([(name field-type) (parse-declarator type)])
-          (expect-punct ";")
-          (make-field name field-type))))
+      (let ([base-type (parse-type)])
+        (let loop ([fields '()])
+          (let-values ([(name field-type) (parse-declarator base-type)])
+            (let ([new-fields (cons (make-field name field-type) fields)])
+              (cond
+                [(is-punct? (peek) ",")
+                 (advance!)
+                 (loop new-fields)]
+                [(is-punct? (peek) ";")
+                 (advance!)
+                 (reverse new-fields)]
+                [else
+                 (parse-error "Expected ';' or ','")]))))))
 
     ;; Parse enum definition
     (define (parse-enum-definition)
@@ -544,20 +554,52 @@
                         (loop (cons enum enums) (+ (enumerator-value enum) 1))))
                   (reverse (cons enum enums)))))))
 
+    ;; Skip enumerator value expression
+    ;; Skips tokens until we hit , or } at depth 0
+    (define (skip-enum-value)
+      (let loop ([depth 0])
+        (let ([tok (peek)])
+          (cond
+            [(not tok) (parse-error "Unexpected end in enum value")]
+            [(and (= depth 0) (or (is-punct? tok ",") (is-punct? tok "}")))
+             #f]  ;; Done, leave , or } for caller
+            [(or (is-punct? tok "(") (is-punct? tok "[") (is-punct? tok "{"))
+             (advance!)
+             (loop (+ depth 1))]
+            [(or (is-punct? tok ")") (is-punct? tok "]") (is-punct? tok "}"))
+             (advance!)
+             (loop (- depth 1))]
+            [else
+             (advance!)
+             (loop depth)]))))
+
     ;; Parse single enumerator
     (define (parse-enumerator current-value)
-      (let ([name (token-value (expect-identifier))])
-        (let ([val (if (is-punct? (peek) "=")
-                       (begin
-                         (advance!)
-                         (let ([tok (peek)])
-                           (if (number-token? tok)
-                               (begin
-                                 (advance!)
-                                 (parse-c-number (token-value tok)))
-                               current-value)))
-                       current-value)])
-          (make-enumerator name val))))
+      ;; Check if we have an identifier or if we hit unexpected tokens
+      (let ([tok (peek)])
+        (cond
+          [(not (identifier-token? tok))
+           ;; Not an enumerator - might be malformed macro expansion
+           ;; Skip to next comma or closing brace
+           (skip-enum-value)
+           ;; Return dummy enumerator
+           (make-enumerator 'unknown current-value)]
+          [else
+           (let ([name (token-value (expect-identifier))])
+             (let ([val (if (is-punct? (peek) "=")
+                            (begin
+                              (advance!)
+                              (let ([tok (peek)])
+                                (if (number-token? tok)
+                                    (begin
+                                      (advance!)
+                                      (parse-c-number (token-value tok)))
+                                    (begin
+                                      ;; Complex expression, skip it and use current value
+                                      (skip-enum-value)
+                                      current-value))))
+                            current-value)])
+               (make-enumerator name val)))])))
 
     ;; Parse function or variable declaration
     ;; Skip variable initializer (= value)
