@@ -8,12 +8,30 @@
           declaration->ffi-form)
   (import (rnrs base)
           (rnrs control)
+          (rnrs hashtables)
           (rnrs io simple)
           (rnrs lists)
           (c-tools ast c)
-          (except (c-tools utility) extract-exports))
+          (only (c-tools utility) format symbol-append))
 
-  ;;; Type Mapping: C types to Chez Scheme FFI types
+  ;;=======================================================================
+  ;; Type Mapping: C types to Chez Scheme FFI types
+
+  ;; Global typedef resolution table
+  (define *typedef-table* (make-eq-hashtable))
+
+  ;; Build typedef resolution table from declarations
+  (define (build-typedef-table! declarations)
+    (for-each (lambda (decl)
+               (when (typedef? decl)
+                 (hashtable-set! *typedef-table*
+                                (typedef-name decl)
+                                (typedef-type decl))))
+             declarations))
+
+  ;; Resolve typedef name to underlying type
+  (define (resolve-typedef name)
+    (hashtable-ref *typedef-table* name #f))
 
   ;; Convert C basic type to Chez FFI type
   (define (basic-type->ffi type-name)
@@ -81,7 +99,7 @@
           ;; Enums are integers
           'int]
          [(typedef)
-          ;; Use the typedef name as-is (assumes it's defined elsewhere)
+          ;; Use typedef name directly (don't resolve)
           (named-type-name type)])]
 
       ;; Qualified type (const, volatile)
@@ -120,39 +138,84 @@
           `(comment ,(format "Skipping variadic function: ~a" name))
           ;; Regular function
           `(define ,scheme-name
-             (foreign-procedure ,lib-name ,(symbol->string name)
+             (foreign-procedure ,(symbol->string name)
                               ,ffi-params ,ffi-return)))))
+
+  ;; Check if a struct/union is defined
+  (define (is-type-defined? name declarations)
+    (let loop ([decls declarations])
+      (cond
+        [(null? decls) #f]
+        [(and (struct-decl? (car decls))
+              (eq? (struct-decl-name (car decls)) name)
+              (pair? (struct-decl-fields (car decls))))  ;; Has fields = defined
+         #t]
+        [(and (union-decl? (car decls))
+              (eq? (union-decl-name (car decls)) name)
+              (pair? (union-decl-fields (car decls))))
+         #t]
+        [else (loop (cdr decls))])))
+
+  ;; Global declaration list (set during code generation)
+  (define *all-declarations* '())
+
+  ;; Convert type for typedef, handling opaque types
+  (define (typedef-type->ffi type)
+    (cond
+      ;; Pointer to named struct/union - check if opaque
+      [(pointer-type? type)
+       (let ([pointee (pointer-type-pointee type)])
+         (cond
+           ;; Pointer to struct/union that might be opaque
+           [(and (named-type? pointee)
+                 (memq (named-type-kind pointee) '(struct union)))
+            (if (is-type-defined? (named-type-name pointee) *all-declarations*)
+                ;; Defined - use normal pointer type
+                (list '* (ast->ffi-type pointee))
+                ;; Opaque - just void*
+                'void*)]
+           ;; Other pointer types
+           [else (ast->ffi-type type)]))]
+      ;; Non-pointer types
+      [else (ast->ffi-type type)]))
 
   ;; Generate typedef form
   (define (typedef->ffi-form decl)
-    (let* ([name (typedef-name decl)]
-           [type (typedef-type decl)]
-           [ffi-type (ast->ffi-type type)])
-      `(define-ffi-type ,name ,ffi-type)))
+    (let ([name (typedef-name decl)]
+          [type (typedef-type decl)])
+      `(define-ftype ,name ,(typedef-type->ffi type))))
 
   ;; Generate struct definition form using define-ftype
   (define (struct-decl->ffi-form decl)
     (let ([name (struct-decl-name decl)]
           [fields (struct-decl-fields decl)])
-      (let ([ftype-name (symbol-append 'struct- name)]
-            [field-specs (map (lambda (field)
-                               (list (field-name field)
-                                     (ast->ffi-type (field-type field))))
-                             fields)])
-        `(define-ftype ,ftype-name
-           (struct ,@field-specs)))))
+      (let ([ftype-name (symbol-append 'struct- name)])
+        (if (null? fields)
+            ;; Opaque/incomplete type - define as void*
+            `(define-ftype ,ftype-name void*)
+            ;; Complete type with fields
+            (let ([field-specs (map (lambda (field)
+                                     (list (field-name field)
+                                           (ast->ffi-type (field-type field))))
+                                   fields)])
+              `(define-ftype ,ftype-name
+                 (struct ,@field-specs)))))))
 
   ;; Generate union definition form using define-ftype
   (define (union-decl->ffi-form decl)
     (let ([name (union-decl-name decl)]
           [fields (union-decl-fields decl)])
-      (let ([ftype-name (symbol-append 'union- name)]
-            [field-specs (map (lambda (field)
-                               (list (field-name field)
-                                     (ast->ffi-type (field-type field))))
-                             fields)])
-        `(define-ftype ,ftype-name
-           (union ,@field-specs)))))
+      (let ([ftype-name (symbol-append 'union- name)])
+        (if (null? fields)
+            ;; Opaque/incomplete type - define as void*
+            `(define-ftype ,ftype-name void*)
+            ;; Complete type with fields
+            (let ([field-specs (map (lambda (field)
+                                     (list (field-name field)
+                                           (ast->ffi-type (field-type field))))
+                                   fields)])
+              `(define-ftype ,ftype-name
+                 (union ,@field-specs)))))))
 
   ;; Generate enum definition form
   (define (enum-decl->ffi-form decl)
@@ -165,6 +228,7 @@
                  enumerators))))
 
   ;; Convert a single declaration to FFI form
+  ;; Returns #f if no form should be generated (e.g., typedefs)
   (define (declaration->ffi-form decl lib-name)
     (cond
       [(function-decl? decl)
@@ -178,20 +242,205 @@
       [(enum-decl? decl)
        (enum-decl->ffi-form decl)]
       [else
-       '(comment "Unknown declaration type")]))
+       #f]))
 
-  ;;; Top-level API
+  ;;=======================================================================
+  ;; Topological Sorting
+
+  ;; Extract type names that a declaration depends on
+  (define (declaration-dependencies decl)
+    (cond
+      [(function-decl? decl)
+       (let* ([ret-type (function-decl-return-type decl)]
+              [params (function-decl-params decl)]
+              [ret-deps (type-dependencies ret-type)]
+              [param-deps (apply append (map (lambda (p)
+                                              (type-dependencies (param-type p)))
+                                            params))])
+         (append ret-deps param-deps))]
+
+      [(typedef? decl)
+       (type-dependencies (typedef-type decl))]
+
+      [(struct-decl? decl)
+       (if (null? (struct-decl-fields decl))
+           '()  ;; Opaque struct has no dependencies
+           (apply append (map (lambda (f)
+                               (type-dependencies (field-type f)))
+                             (struct-decl-fields decl))))]
+
+      [(union-decl? decl)
+       (apply append (map (lambda (f)
+                           (type-dependencies (field-type f)))
+                         (union-decl-fields decl)))]
+
+      [(enum-decl? decl)
+       '()]  ;; Enums have no type dependencies
+
+      [else '()]))
+
+  ;; Extract type names from a type
+  (define (type-dependencies type)
+    (cond
+      [(basic-type? type) '()]
+
+      [(pointer-type? type)
+       (type-dependencies (pointer-type-pointee type))]
+
+      [(named-type? type)
+       (list (named-type-name type))]
+
+      [(qualified-type? type)
+       (type-dependencies (qualified-type-type type))]
+
+      [(array-type? type)
+       (type-dependencies (array-type-element type))]
+
+      [(function-type? type)
+       '()]  ;; Function pointers simplified to void*
+
+      [else '()]))
+
+  ;; Get name defined by a declaration
+  (define (declaration-name decl)
+    (cond
+      [(function-decl? decl) (function-decl-name decl)]
+      [(typedef? decl) (typedef-name decl)]
+      [(struct-decl? decl) (struct-decl-name decl)]
+      [(union-decl? decl) (union-decl-name decl)]
+      [(enum-decl? decl) (enum-decl-name decl)]
+      [else #f]))
+
+  ;; Topologically sort declarations
+  ;; Returns declarations in dependency order (dependencies first)
+  (define (topological-sort declarations)
+    (let* ([decl-map (make-decl-map declarations)]
+           [visited (make-eq-hashtable)]
+           [result '()])
+
+      (define (visit decl)
+        (let ([name (declaration-name decl)])
+          (when name
+            (unless (hashtable-ref visited name #f)
+              (hashtable-set! visited name #t)
+
+              ;; Visit dependencies first
+              (let ([deps (declaration-dependencies decl)])
+                (for-each (lambda (dep-name)
+                           (let ([dep-decl (hashtable-ref decl-map dep-name #f)])
+                             (when dep-decl
+                               (visit dep-decl))))
+                         deps))
+
+              ;; Add this declaration to result
+              (set! result (cons decl result))))))
+
+      ;; Visit all declarations
+      (for-each visit declarations)
+
+      ;; Return in reverse order (dependencies first)
+      (reverse result)))
+
+  ;; Build map from type name to declaration
+  (define (make-decl-map declarations)
+    (let ([map (make-eq-hashtable)])
+      (for-each (lambda (decl)
+                 (let ([name (declaration-name decl)])
+                   (when name
+                     (hashtable-set! map name decl))))
+               declarations)
+      map))
+
+  ;;=======================================================================
+  ;; Top-level API
+
+  ;; Collect all struct/union names referenced in types
+  (define (collect-referenced-types declarations)
+    (let ([refs (make-eq-hashtable)])
+      (define (collect-from-type type)
+        (cond
+          [(pointer-type? type)
+           (collect-from-type (pointer-type-pointee type))]
+          [(named-type? type)
+           (case (named-type-kind type)
+             [(struct union)
+              (hashtable-set! refs (named-type-name type) #t)]
+             [(typedef)
+              (let ([underlying (resolve-typedef (named-type-name type))])
+                (when underlying
+                  (collect-from-type underlying)))])]
+          [(qualified-type? type)
+           (collect-from-type (qualified-type-type type))]
+          [(array-type? type)
+           (collect-from-type (array-type-element type))]))
+
+      (for-each (lambda (decl)
+                 (cond
+                   [(function-decl? decl)
+                    (collect-from-type (function-decl-return-type decl))
+                    (for-each (lambda (p)
+                               (collect-from-type (param-type p)))
+                             (function-decl-params decl))]
+                   [(typedef? decl)
+                    (collect-from-type (typedef-type decl))]
+                   [(struct-decl? decl)
+                    (for-each (lambda (f)
+                               (collect-from-type (field-type f)))
+                             (struct-decl-fields decl))]
+                   [(union-decl? decl)
+                    (for-each (lambda (f)
+                               (collect-from-type (field-type f)))
+                             (union-decl-fields decl))]))
+               declarations)
+      refs))
+
+  ;; Find struct/union names that are referenced but not defined
+  (define (find-undefined-types declarations)
+    (let ([referenced (collect-referenced-types declarations)]
+          [defined (make-eq-hashtable)])
+      ;; Collect defined struct/union names
+      (for-each (lambda (decl)
+                 (cond
+                   [(struct-decl? decl)
+                    (hashtable-set! defined (struct-decl-name decl) 'struct)]
+                   [(union-decl? decl)
+                    (hashtable-set! defined (union-decl-name decl) 'union)]))
+               declarations)
+      ;; Find referenced but not defined
+      (let ([undefined '()])
+        (vector-for-each
+          (lambda (name)
+            (unless (hashtable-ref defined name #f)
+              (set! undefined (cons name undefined))))
+          (hashtable-keys referenced))
+        undefined)))
+
+  ;; Generate opaque type definitions
+  (define (generate-opaque-types undefined-names)
+    (map (lambda (name)
+          `(define-ftype ,(symbol-append 'struct- name) void*))
+        undefined-names))
 
   ;; Generate complete FFI code from list of declarations
   (define (generate-ffi-code declarations lib-name)
     ;;   Generate FFI bindings for a list of C declarations
-    (let ([forms (map (lambda (decl) (declaration->ffi-form decl lib-name))
-                     declarations)])
+    ;; Set global declaration list for opaque type checking
+    (set! *all-declarations* declarations)
+    ;; Build typedef resolution table
+    (build-typedef-table! declarations)
+    (let* ([undefined (find-undefined-types declarations)]
+           [opaque-forms (generate-opaque-types undefined)]
+           [sorted-decls (topological-sort declarations)]
+           [all-forms (map (lambda (decl) (declaration->ffi-form decl lib-name))
+                          sorted-decls)]
+           ;; Filter out #f forms if any
+           [forms (filter (lambda (f) f) all-forms)])
       ;; Wrap in a library form
       `(library (ffi ,(string->symbol lib-name))
-         (export ,@(extract-exports forms))
+         (export ,@(extract-exports (append opaque-forms forms)))
          (import (chezscheme))
 
+         ,@opaque-forms
          ,@forms)))
 
   ;; Extract exported identifiers from generated forms
