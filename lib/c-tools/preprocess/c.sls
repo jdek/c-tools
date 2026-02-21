@@ -439,9 +439,9 @@
                                 [content-str (if (bytevector? content)
                                                  (utf8->string content)
                                                  content)]
-                                [inc-tokens (tokenize-string content-str path)]
-                                [preprocessed (preprocess-tokens inc-tokens)])
-                           (continue cond-stack preprocessed))
+                                [inc-tokens (tokenize-string content-str path)])
+                           ;; Return raw tokens for preprocessing in current context
+                           (continue cond-stack inc-tokens))
                          (continue cond-stack '())))
                    (continue cond-stack '())))]
 
@@ -455,9 +455,9 @@
                           [content-str (if (bytevector? content)
                                            (utf8->string content)
                                            content)]
-                          [inc-tokens (tokenize-string content-str path)]
-                          [preprocessed (preprocess-tokens inc-tokens)])
-                     (continue cond-stack preprocessed))
+                          [inc-tokens (tokenize-string content-str path)])
+                     ;; Return raw tokens for preprocessing in current context
+                     (continue cond-stack inc-tokens))
                    (continue cond-stack '())))]
 
             ;; #include MACRO - expand macro and retry

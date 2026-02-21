@@ -143,8 +143,16 @@
                  [(ptrdiff_t) 'ptrdiff_t]
                  [(intptr_t) 'iptr]
                  [(uintptr_t) 'uptr]
-                 ;; Other typedefs - use name directly
-                 [else name]))])]
+                 ;; Other typedefs - resolve in struct context to avoid circular deps
+                 [else
+                  (if (eq? context 'struct)
+                      ;; In struct context, resolve typedef to underlying type
+                      (let ([resolved (resolve-typedef name)])
+                        (if resolved
+                            (ast->ffi-type resolved context)
+                            name))
+                      ;; In function context, use typedef name directly
+                      name)]))])]
 
          ;; Qualified type (const, volatile)
          [(qualified-type? type)
@@ -226,33 +234,10 @@
   ;; Global declaration list (set during code generation)
   (define *all-declarations* '())
 
-  ;; Convert type for typedef, handling opaque types
+  ;; Convert type for typedef
+  ;; Uses struct context since typedefs can appear in struct field positions
   (define (typedef-type->ffi type)
-    (cond
-      ;; Named enum type - reference enum-XXX
-      [(and (named-type? type)
-            (eq? (named-type-kind type) 'enum))
-       (symbol-append 'enum- (named-type-name type))]
-      ;; Pointer to named struct/union - check if opaque
-      [(pointer-type? type)
-       (let ([pointee (pointer-type-pointee type)])
-         (cond
-           ;; Pointer to struct/union that might be opaque
-           [(and (named-type? pointee)
-                 (memq (named-type-kind pointee) '(struct union)))
-            (if (is-type-defined? (named-type-name pointee) *all-declarations*)
-                ;; Defined - use normal pointer type in struct context
-                (list '* (ast->ffi-type pointee 'struct))
-                ;; Opaque - void* for typedef
-                'void*)]
-           ;; Other pointer types - use struct context for typedef definitions
-           [else (ast->ffi-type type 'struct)]))]
-      ;; Named struct/union type (non-pointer) - use the struct-/union- prefixed name
-      [(and (named-type? type)
-            (memq (named-type-kind type) '(struct union)))
-       (ast->ffi-type type 'struct)]
-      ;; Non-pointer types
-      [else (ast->ffi-type type 'struct)]))
+    (ast->ffi-type type 'struct))
 
   ;; Generate typedef form
   (define (typedef->ffi-form decl)
@@ -266,8 +251,8 @@
           [fields (struct-decl-fields decl)])
       (let ([ftype-name (symbol-append 'struct- name)])
         (if (null? fields)
-            ;; Opaque/incomplete type - define as void*
-            `(define-ftype ,ftype-name void*)
+            ;; Opaque/incomplete type - define as empty struct
+            `(define-ftype ,ftype-name (struct))
             ;; Complete type with fields
             (let ([field-specs (map (lambda (field)
                                      (list (field-name field)
@@ -282,8 +267,8 @@
           [fields (union-decl-fields decl)])
       (let ([ftype-name (symbol-append 'union- name)])
         (if (null? fields)
-            ;; Opaque/incomplete type - define as void*
-            `(define-ftype ,ftype-name void*)
+            ;; Opaque/incomplete type - define as empty struct
+            `(define-ftype ,ftype-name (struct))
             ;; Complete type with fields
             (let ([field-specs (map (lambda (field)
                                      (list (field-name field)
@@ -292,19 +277,16 @@
               `(define-ftype ,ftype-name
                  (union ,@field-specs)))))))
 
-  ;; Generate enum definition form
+  ;; Generate enum constant definitions (ftype is handled separately)
   (define (enum-decl->ffi-form decl)
-    (let ([name (enum-decl-name decl)]
-          [enumerators (enum-decl-enumerators decl)])
-      ;; If enum has a name, create enum type
-      (cons 'begin
-            (append
-              (if name
-                  (list `(define-ftype ,(symbol-append 'enum- name) int))
-                  '())
-              (map (lambda (e)
-                     `(define ,(enumerator-name e) ,(enumerator-value e)))
-                   enumerators)))))
+    (let ([enumerators (enum-decl-enumerators decl)])
+      ;; Generate constant definitions
+      (if (null? enumerators)
+          #f
+          (cons 'begin
+                (map (lambda (e)
+                       `(define ,(enumerator-name e) ,(enumerator-value e)))
+                     enumerators)))))
 
   ;; Convert a single declaration to FFI form
   ;; Returns #f if no form should be generated (e.g., typedefs)
@@ -372,6 +354,12 @@
          [(struct) (list (symbol-append 'struct- (named-type-name type)))]
          [(union) (list (symbol-append 'union- (named-type-name type)))]
          [(enum) (list (symbol-append 'enum- (named-type-name type)))]
+         [(typedef)
+          ;; Resolve typedef to get actual dependencies
+          (let ([resolved (resolve-typedef (named-type-name type))])
+            (if resolved
+                (type-dependencies resolved)
+                (list (named-type-name type))))]
          [else (list (named-type-name type))])]
 
       [(qualified-type? type)
@@ -509,8 +497,91 @@
   ;; Generate opaque type definitions
   (define (generate-opaque-types undefined-names)
     (map (lambda (name)
-          `(define-ftype ,(symbol-append 'struct- name) void*))
+          `(define-ftype ,(symbol-append 'struct- name) (struct)))
         undefined-names))
+
+  ;; Generate struct/union ftype bindings for multi-def form
+  (define (struct-decl->ftype-binding decl)
+    (let ([name (struct-decl-name decl)]
+          [fields (struct-decl-fields decl)])
+      (let ([ftype-name (symbol-append 'struct- name)])
+        (if (null? fields)
+            ;; Opaque - empty struct
+            (list ftype-name '(struct))
+            ;; Complete struct
+            (let ([field-specs (map (lambda (field)
+                                     (list (field-name field)
+                                           (ast->ffi-type (field-type field) 'struct)))
+                                   fields)])
+              (list ftype-name (cons 'struct field-specs)))))))
+
+  (define (union-decl->ftype-binding decl)
+    (let ([name (union-decl-name decl)]
+          [fields (union-decl-fields decl)])
+      (let ([ftype-name (symbol-append 'union- name)])
+        (if (null? fields)
+            ;; Opaque - empty struct
+            (list ftype-name '(struct))
+            ;; Complete union
+            (let ([field-specs (map (lambda (field)
+                                     (list (field-name field)
+                                           (ast->ffi-type (field-type field) 'struct)))
+                                   fields)])
+              (list ftype-name (cons 'union field-specs)))))))
+
+  (define (enum-decl->ftype-binding decl)
+    (let ([name (enum-decl-name decl)])
+      (if name
+          (list (symbol-append 'enum- name) 'int)
+          #f)))
+
+  ;; Sort struct/union bindings topologically
+  ;; Forward references are only allowed in pointer fields
+  (define (sort-ftype-bindings bindings)
+    (let ([binding-map (make-eq-hashtable)]
+          [visited (make-eq-hashtable)]
+          [result '()])
+
+      ;; Extract non-pointer dependencies from a field spec
+      (define (field-deps spec)
+        (cond
+          [(symbol? spec) (list spec)]
+          [(and (pair? spec) (eq? (car spec) '*))
+           '()]  ;; Pointers don't create ordering deps
+          [(pair? spec)
+           (apply append (map field-deps spec))]
+          [else '()]))
+
+      ;; Visit binding in topological order
+      (define (visit binding)
+        (let ([name (car binding)])
+          (unless (hashtable-ref visited name #f)
+            (hashtable-set! visited name #t)
+            (let* ([type-spec (cadr binding)]
+                   [fields (if (and (pair? type-spec)
+                                   (memq (car type-spec) '(struct union)))
+                              (cdr type-spec)
+                              '())]
+                   [deps (apply append (map (lambda (field)
+                                             (field-deps (cadr field)))
+                                           fields))])
+              ;; Visit dependencies first
+              (for-each (lambda (dep)
+                         (let ([dep-binding (hashtable-ref binding-map dep #f)])
+                           (when dep-binding
+                             (visit dep-binding))))
+                       deps)
+              ;; Add this binding
+              (set! result (cons binding result))))))
+
+      ;; Build map from name to binding
+      (for-each (lambda (binding)
+                 (hashtable-set! binding-map (car binding) binding))
+               bindings)
+
+      ;; Visit all bindings
+      (for-each visit bindings)
+      (reverse result)))
 
   ;; Generate complete FFI code from list of declarations
   (define (generate-ffi-code declarations lib-name)
@@ -520,22 +591,48 @@
     ;; Build typedef resolution table
     (build-typedef-table! declarations)
     (let* ([undefined (find-undefined-types declarations)]
-           [opaque-forms (generate-opaque-types undefined)]
-           [sorted-decls (topological-sort declarations)]
-           [all-forms (map (lambda (decl) (declaration->ffi-form decl lib-name))
-                          sorted-decls)]
-           ;; Filter out #f forms and comment forms
+           ;; Group declarations by type
+           [struct-decls (filter struct-decl? declarations)]
+           [union-decls (filter union-decl? declarations)]
+           [enum-decls (filter enum-decl? declarations)]
+           [other-decls (filter (lambda (d)
+                                 (not (or (struct-decl? d)
+                                         (union-decl? d)
+                                         (enum-decl? d))))
+                               declarations)]
+           ;; Generate opaque types for undefined references
+           [opaque-bindings (map (lambda (name)
+                                  (list (symbol-append 'struct- name) '(struct)))
+                                undefined)]
+           ;; Generate struct/union/enum bindings for multi-def form
+           [struct-bindings (map struct-decl->ftype-binding struct-decls)]
+           [union-bindings (map union-decl->ftype-binding union-decls)]
+           [enum-bindings (filter (lambda (b) b)
+                                 (map enum-decl->ftype-binding enum-decls))]
+           [all-type-bindings (sort-ftype-bindings
+                                (append opaque-bindings enum-bindings
+                                       struct-bindings union-bindings))]
+           ;; Generate multi-def ftype form if we have types
+           [types-form (if (null? all-type-bindings)
+                          '()
+                          (list (cons 'define-ftype all-type-bindings)))]
+           ;; Generate enum constant definitions and other declarations
+           [enum-forms (map (lambda (decl) (enum-decl->ffi-form decl)) enum-decls)]
+           [sorted-other (topological-sort other-decls)]
+           [other-forms (map (lambda (decl) (declaration->ffi-form decl lib-name))
+                            sorted-other)]
+           ;; Filter out #f and comment forms
            [forms (filter (lambda (f)
                            (and f
                                 (not (and (pair? f) (eq? (car f) 'comment)))))
-                         all-forms)])
+                         (append enum-forms other-forms))]
+           [all-forms (append types-form forms)])
       ;; Wrap in a library form
       `(library (ffi ,(string->symbol lib-name))
-         (export ,@(extract-exports (append opaque-forms forms)))
+         (export ,@(extract-exports all-forms))
          (import (chezscheme))
 
-         ,@opaque-forms
-         ,@forms)))
+         ,@all-forms)))
 
   ;; Extract exported identifiers from generated forms
   (define (extract-exports forms)
@@ -547,9 +644,16 @@
               ;; define form - export the name
               [(and (pair? form) (eq? (car form) 'define))
                (loop (cdr forms) (cons (cadr form) exports))]
-              ;; define-ftype form - export the type name
-              [(and (pair? form) (eq? (car form) 'define-ftype))
+              ;; define-ftype form with single type
+              [(and (pair? form) (eq? (car form) 'define-ftype)
+                    (symbol? (cadr form)))
                (loop (cdr forms) (cons (cadr form) exports))]
+              ;; define-ftype form with multiple bindings
+              [(and (pair? form) (eq? (car form) 'define-ftype)
+                    (pair? (cadr form)))
+               ;; Extract all type names from bindings
+               (let ([type-names (map car (cdr form))])
+                 (loop (cdr forms) (append (reverse type-names) exports)))]
               ;; begin form - recurse
               [(and (pair? form) (eq? (car form) 'begin))
                (loop (append (cdr form) (cdr forms)) exports)]
