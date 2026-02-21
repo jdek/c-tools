@@ -56,6 +56,29 @@
       (set! anon-struct-counter (+ anon-struct-counter 1))
       (string->symbol (format "__anon_struct_~a" anon-struct-counter)))
 
+    ;; Generate unique name for anonymous enum
+    (define (generate-anonymous-enum-name)
+      (set! anon-struct-counter (+ anon-struct-counter 1))
+      (string->symbol (format "__anon_enum_~a" anon-struct-counter)))
+
+    ;; Parse C number literal (handles hex 0x, octal 0, decimal)
+    (define (parse-c-number str)
+      (cond
+        [(string-prefix? "0x" str)
+         (string->number (substring str 2 (string-length str)) 16)]
+        [(string-prefix? "0X" str)
+         (string->number (substring str 2 (string-length str)) 16)]
+        [(and (> (string-length str) 1)
+              (char=? (string-ref str 0) #\0))
+         ;; Octal number
+         (string->number str 8)]
+        [else
+         (string->number str)]))
+
+    (define (string-prefix? prefix str)
+      (and (>= (string-length str) (string-length prefix))
+           (string=? prefix (substring str 0 (string-length prefix)))))
+
     ;; Token predicates
     (define (is-keyword? tok kw)
       (and tok (keyword-token? tok) (eq? (token-value tok) kw)))
@@ -211,13 +234,50 @@
 
     ;; Parse enum type
     (define (parse-enum-type)
-      (if (is-identifier? (peek))
-          (let ([name (token-value (advance!))])
-            (make-named-type 'enum name))
-          (parse-error "Expected enum name")))
+      (cond
+        ;; enum name { ... } - inline definition
+        [(and (is-identifier? (peek))
+              (is-punct? (peek-ahead 1) "{"))
+         (let ([name (token-value (advance!))])
+           (expect-punct "{")
+           (let ([enumerators (parse-enumerator-list 0)])
+             (expect-punct "}")
+             ;; Register enum definition for later emission
+             (set! pending-struct-decls
+               (cons (make-enum-decl name enumerators)
+                     pending-struct-decls))
+             ;; Return named type reference
+             (make-named-type 'enum name)))]
+        ;; enum name - forward declaration or reference
+        [(is-identifier? (peek))
+         (let ([name (token-value (advance!))])
+           (make-named-type 'enum name))]
+        ;; enum { ... } - anonymous
+        [(is-punct? (peek) "{")
+         (advance!)
+         (let ([enumerators (parse-enumerator-list 0)])
+           (expect-punct "}")
+           ;; For anonymous enums, generate a unique name
+           (let ([anon-name (generate-anonymous-enum-name)])
+             (set! pending-struct-decls
+               (cons (make-enum-decl anon-name enumerators)
+                     pending-struct-decls))
+             (make-named-type 'enum anon-name)))]
+        [else
+         (parse-error "Expected enum name or {")]))
+
+    ;; Skip storage class specifiers (static, extern, register, auto, typedef)
+    (define (skip-storage-class-specifiers)
+      (let loop ()
+        (let ([tok (peek)])
+          (when (and (keyword-token? tok)
+                     (memq (token-value tok) '(static extern register auto typedef)))
+            (advance!)
+            (loop)))))
 
     ;; Parse type with qualifiers and pointers
     (define (parse-type)
+      (skip-storage-class-specifiers)
       (let ([base (parse-type-specifier)])
         (parse-type-modifiers base)))
 
@@ -494,15 +554,38 @@
                            (if (number-token? tok)
                                (begin
                                  (advance!)
-                                 (string->number (token-value tok)))
+                                 (parse-c-number (token-value tok)))
                                current-value)))
                        current-value)])
           (make-enumerator name val))))
 
     ;; Parse function or variable declaration
+    ;; Skip variable initializer (= value)
+    (define (skip-initializer)
+      (expect-punct "=")
+      ;; Skip tokens until semicolon, handling nested braces/brackets/parens
+      (let loop ([depth 0])
+        (let ([tok (peek)])
+          (cond
+            [(not tok) (parse-error "Unexpected end of input in initializer")]
+            [(and (= depth 0) (is-punct? tok ";"))
+             #f]  ;; Done, leave semicolon for expect-punct
+            [(or (is-punct? tok "{") (is-punct? tok "[") (is-punct? tok "("))
+             (advance!)
+             (loop (+ depth 1))]
+            [(or (is-punct? tok "}") (is-punct? tok "]") (is-punct? tok ")"))
+             (advance!)
+             (loop (- depth 1))]
+            [else
+             (advance!)
+             (loop depth)]))))
+
     (define (parse-function-or-variable)
       (let ([type (parse-type)])
         (let-values ([(name decl-type) (parse-declarator type)])
+          ;; Skip initializer if present
+          (when (is-punct? (peek) "=")
+            (skip-initializer))
           (expect-punct ";")
           (if (function-type? decl-type)
               (make-function-decl name

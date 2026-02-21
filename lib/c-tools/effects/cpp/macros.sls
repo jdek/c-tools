@@ -11,6 +11,7 @@
   (import (rnrs base)
           (rnrs control)
           (rnrs hashtables)
+          (rnrs io simple)
           (rnrs lists)
           (rnrs records syntactic)
           (c-tools core tokens)

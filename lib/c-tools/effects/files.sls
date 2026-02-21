@@ -37,11 +37,17 @@
   ;; File Effect Handler
 
   ;; Handles file operations by checking memory-fs first, then filesystem
+  (define (absolute-path? path)
+    (and (> (string-length path) 0)
+         (char=? (string-ref path 0) #\/)))
+
   (define (with-file-system memory-fs root-dir thunk)
     (with-handler 'file-exists
       (lambda (path k loop)
         (let ([exists? (or (and memory-fs (protected-hashtable-contains? memory-fs path))
-                          (file-exists? (string-append root-dir path)))])
+                          (file-exists? (if (absolute-path? path)
+                                            path
+                                            (string-append root-dir path))))])
           (k exists?)))
       (with-handler 'read-file
         (lambda (path k loop)
@@ -50,7 +56,9 @@
               ;; Return from memory-fs
               (k (protected-hashtable-ref memory-fs path #f))
               ;; Fall back to filesystem
-              (let ([full-path (string-append root-dir path)])
+              (let ([full-path (if (absolute-path? path)
+                                   path
+                                   (string-append root-dir path))])
                 (if (file-exists? full-path)
                     (let ([buf (call-with-port (open-file-input-port full-path)
                                  (lambda (in)

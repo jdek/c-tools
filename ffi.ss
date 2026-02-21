@@ -1,4 +1,4 @@
-#!/usr/bin/env scheme-script
+#!/usr/bin/env -S scheme --compile-imported-libraries --script
 ;; FFI Binding Generator for C/C++ Headers
 ;; Generates Chez Scheme FFI bindings from C or C++ header files
 
@@ -32,22 +32,32 @@
 ;;=======================================================================
 ;; Main FFI generation pipeline
 
+(define (get-directory path)
+  ;; Extract directory from file path
+  (let loop ([i (- (string-length path) 1)])
+    (cond
+      [(< i 0) "."]
+      [(char=? (string-ref path i) #\/)
+       (substring path 0 i)]
+      [else (loop (- i 1))])))
+
 (define (generate-c-ffi filename lib-name output-file)
   ;; C FFI generation pipeline
-  (with-file-system #f "."
-    (lambda ()
-      (with-effects '((cpp-include ())
-                      cpp-macros
-                      cpp-conditional)
-        (lambda ()
-          (let* ([tokens (preprocess-file filename)]
-                 [decls (parse-declarations tokens)]
-                 [ffi-code (chez:generate-ffi-code decls lib-name)])
-            (if output-file
-                (call-with-output-file output-file
-                  (lambda (port)
-                    (pretty-print ffi-code port)))
-                (pretty-print ffi-code))))))))
+  (let ([include-dir (get-directory filename)])
+    (with-file-system #f "."
+      (lambda ()
+        (with-effects `((cpp-include (,include-dir))
+                        cpp-macros
+                        cpp-conditional)
+          (lambda ()
+            (let* ([tokens (preprocess-file filename)]
+                   [decls (parse-declarations tokens)]
+                   [ffi-code (chez:generate-ffi-code decls lib-name)])
+              (if output-file
+                  (call-with-output-file output-file
+                    (lambda (port)
+                      (pretty-print ffi-code port)))
+                  (pretty-print ffi-code)))))))))
 
 (define (generate-cpp-ffi filename lib-name output-file)
   ;; C++ FFI generation pipeline

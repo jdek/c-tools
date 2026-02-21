@@ -8,6 +8,7 @@
   (import (rnrs base)
           (rnrs conditions)
           (rnrs exceptions)
+          (rnrs io simple)
           (rnrs lists)
           (c-tools core conditions)
           (c-tools core tokens)
@@ -35,7 +36,6 @@
                   (let ([full-path (if (equal? (car ps) ".")
                                       path
                                       (string-append (car ps) "/" path))])
-
                     ;; Check for cycle
                     (if (member full-path include-stack)
                         (raise
