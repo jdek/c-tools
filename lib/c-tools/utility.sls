@@ -11,6 +11,7 @@
           unbox
           set-box!
           last-pair
+          ormap
           make-parameter
           make-mutex
           with-mutex
@@ -201,6 +202,13 @@
     (if (pair? (cdr lst))
         (last-pair (cdr lst))
         lst))
+
+  ;; ormap : (a => bool) list-of-a => bool
+  ;;   Returns #t if predicate is true for any element.
+  (define (ormap proc lst)
+    (and (pair? lst)
+         (or (proc (car lst))
+             (ormap proc (cdr lst)))))
 
   ;;=======================================================================
   ;; Parameter Type (dynamic variables)

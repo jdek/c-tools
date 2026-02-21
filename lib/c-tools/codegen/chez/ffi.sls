@@ -12,7 +12,7 @@
           (rnrs io simple)
           (rnrs lists)
           (c-tools ast c)
-          (only (c-tools utility) format symbol-append))
+          (only (c-tools utility) format symbol-append ormap))
 
   ;;=======================================================================
   ;; Type Mapping: C types to Chez Scheme FFI types
@@ -50,77 +50,136 @@
       [(unsigned-long-long) 'unsigned-long-long]
       [(float) 'float]
       [(double) 'double]
+      ;; stdint.h types
+      [(int8_t) 'integer-8]
+      [(uint8_t) 'unsigned-8]
+      [(int16_t) 'integer-16]
+      [(uint16_t) 'unsigned-16]
+      [(int32_t) 'integer-32]
+      [(uint32_t) 'unsigned-32]
+      [(int64_t) 'integer-64]
+      [(uint64_t) 'unsigned-64]
+      ;; Common platform-specific types
+      [(size_t) 'size_t]
+      [(ssize_t) 'ssize_t]
+      [(ptrdiff_t) 'ptrdiff_t]
+      [(intptr_t) 'iptr]
+      [(uintptr_t) 'uptr]
       [else
        ;; Unknown basic type - treat as int
        'int]))
 
   ;; Convert AST type to Chez FFI type specification
-  (define (ast->ffi-type type)
-    (cond
-      ;; Basic type
-      [(basic-type? type)
-       (basic-type->ffi (basic-type-name type))]
+  ;; context: 'function (default) or 'struct
+  ;;   In function context, char* maps to 'string
+  ;;   In struct context, char* maps to 'u8*
+  (define ast->ffi-type
+    (case-lambda
+      [(type) (ast->ffi-type type 'function)]
+      [(type context)
+       (cond
+         ;; Basic type
+         [(basic-type? type)
+          (basic-type->ffi (basic-type-name type))]
 
-      ;; Pointer type
-      [(pointer-type? type)
-       (let ([pointee (pointer-type-pointee type)])
-         (cond
-           ;; char* -> string (for convenience)
-           [(and (basic-type? pointee)
-                 (eq? (basic-type-name pointee) 'char))
-            'string]
-           ;; void* -> void*
-           [(and (basic-type? pointee)
-                 (eq? (basic-type-name pointee) 'void))
-            'void*]
-           ;; struct foo* -> (* struct-foo)
-           [(named-type? pointee)
-            (case (named-type-kind pointee)
-              [(struct)
-               (list '* (symbol-append 'struct- (named-type-name pointee)))]
-              [(union)
-               (list '* (symbol-append 'union- (named-type-name pointee)))]
-              [else
-               (list '* (ast->ffi-type pointee))])]
-           ;; Other pointers: (* T)
-           [else
-            (list '* (ast->ffi-type pointee))]))]
+         ;; Pointer type
+         [(pointer-type? type)
+          (let ([pointee (pointer-type-pointee type)])
+            ;; Unwrap qualified types (const, volatile)
+            (let ([unwrapped (if (qualified-type? pointee)
+                                (qualified-type-type pointee)
+                                pointee)])
+              (cond
+                ;; char* -> string in function context, (* unsigned-8) in struct context
+                [(and (basic-type? unwrapped)
+                      (eq? (basic-type-name unwrapped) 'char))
+                 (if (eq? context 'function) 'string '(* unsigned-8))]
+                ;; void* -> void* in both contexts
+                [(and (basic-type? unwrapped)
+                      (eq? (basic-type-name unwrapped) 'void))
+                 'void*]
+                ;; Pointer to pointer -> void* (nested * not supported)
+                [(pointer-type? unwrapped)
+                 'void*]
+                ;; struct foo* -> (* struct-foo)
+                [(named-type? unwrapped)
+                 (case (named-type-kind unwrapped)
+                   [(struct)
+                    (list '* (symbol-append 'struct- (named-type-name unwrapped)))]
+                   [(union)
+                    (list '* (symbol-append 'union- (named-type-name unwrapped)))]
+                   [else
+                    (list '* (ast->ffi-type pointee context))])]
+                ;; Other pointers: (* T)
+                [else
+                 (list '* (ast->ffi-type pointee context))])))]
 
-      ;; Named type (struct, union, enum, typedef)
-      [(named-type? type)
-       (case (named-type-kind type)
-         [(struct)
-          ;; Reference to struct type by name
-          (symbol-append 'struct- (named-type-name type))]
-         [(union)
-          ;; Reference to union type by name
-          (symbol-append 'union- (named-type-name type))]
-         [(enum)
-          ;; Enums are integers
-          'int]
-         [(typedef)
-          ;; Use typedef name directly (don't resolve)
-          (named-type-name type)])]
+         ;; Named type (struct, union, enum, typedef)
+         [(named-type? type)
+          (case (named-type-kind type)
+            [(struct)
+             ;; Reference to struct type by name
+             (symbol-append 'struct- (named-type-name type))]
+            [(union)
+             ;; Reference to union type by name
+             (symbol-append 'union- (named-type-name type))]
+            [(enum)
+             ;; Reference to enum type by name
+             (symbol-append 'enum- (named-type-name type))]
+            [(typedef)
+             ;; Check if it's a stdint type - map directly to Chez type
+             (let ([name (named-type-name type)])
+               (case name
+                 [(int8_t) 'integer-8]
+                 [(uint8_t) 'unsigned-8]
+                 [(int16_t) 'integer-16]
+                 [(uint16_t) 'unsigned-16]
+                 [(int32_t) 'integer-32]
+                 [(uint32_t) 'unsigned-32]
+                 [(int64_t) 'integer-64]
+                 [(uint64_t) 'unsigned-64]
+                 [(size_t) 'size_t]
+                 [(ssize_t) 'ssize_t]
+                 [(ptrdiff_t) 'ptrdiff_t]
+                 [(intptr_t) 'iptr]
+                 [(uintptr_t) 'uptr]
+                 ;; Other typedefs - use name directly
+                 [else name]))])]
 
-      ;; Qualified type (const, volatile)
-      [(qualified-type? type)
-       ;; Ignore qualifiers in FFI
-       (ast->ffi-type (qualified-type-type type))]
+         ;; Qualified type (const, volatile)
+         [(qualified-type? type)
+          ;; Ignore qualifiers in FFI
+          (ast->ffi-type (qualified-type-type type) context)]
 
-      ;; Array type
-      [(array-type? type)
-       ;; Arrays decay to pointers in FFI
-       (list '* (ast->ffi-type (array-type-element type)))]
+         ;; Array type
+         [(array-type? type)
+          ;; Arrays decay to pointers in FFI
+          (list '* (ast->ffi-type (array-type-element type) context))]
 
-      ;; Function type (function pointers)
-      [(function-type? type)
-       ;; Function pointers are just void* for now
-       'void*]
+         ;; Function type (function pointers)
+         [(function-type? type)
+          ;; Function pointers are just void* for now
+          'void*]
 
-      ;; Unknown type
-      [else 'void*]))
+         ;; Unknown type
+         [else 'void*])]))
 
   ;;; Declaration to FFI Form Generation
+
+  ;; Check if a type is a struct/union passed by value
+  (define (struct-by-value? type)
+    (cond
+      [(named-type? type)
+       (case (named-type-kind type)
+         [(struct union) #t]
+         [(typedef)
+          ;; Resolve typedef and check
+          (let ([underlying (resolve-typedef (named-type-name type))])
+            (and underlying (struct-by-value? underlying)))]
+         [else #f])]
+      [(qualified-type? type)
+       (struct-by-value? (qualified-type-type type))]
+      [else #f]))
 
   ;; Generate foreign-procedure form from function-decl
   (define (function-decl->ffi-form decl lib-name)
@@ -128,18 +187,26 @@
            [return-type (function-decl-return-type decl)]
            [params (function-decl-params decl)]
            [variadic? (function-decl-variadic? decl)]
+           [has-struct-by-value? (or (struct-by-value? return-type)
+                                     (ormap (lambda (p) (struct-by-value? (param-type p)))
+                                            params))]
            [ffi-return (ast->ffi-type return-type)]
            [ffi-params (map (lambda (p) (ast->ffi-type (param-type p)))
                            params)]
            [scheme-name (symbol-append 'c- name)])
 
-      (if variadic?
-          ;; Variadic functions need special handling - skip for now
-          `(comment ,(format "Skipping variadic function: ~a" name))
-          ;; Regular function
-          `(define ,scheme-name
-             (foreign-procedure ,(symbol->string name)
-                              ,ffi-params ,ffi-return)))))
+      (cond
+        [variadic?
+         ;; Variadic functions need special handling - skip for now
+         `(comment ,(format "Skipping variadic function: ~a" name))]
+        [has-struct-by-value?
+         ;; Chez FFI cannot pass structs by value
+         `(comment ,(format "Skipping function with struct/union by value: ~a" name))]
+        [else
+         ;; Regular function
+         `(define ,scheme-name
+            (foreign-procedure ,(symbol->string name)
+                             ,ffi-params ,ffi-return))])))
 
   ;; Check if a struct/union is defined
   (define (is-type-defined? name declarations)
@@ -162,6 +229,10 @@
   ;; Convert type for typedef, handling opaque types
   (define (typedef-type->ffi type)
     (cond
+      ;; Named enum type - reference enum-XXX
+      [(and (named-type? type)
+            (eq? (named-type-kind type) 'enum))
+       (symbol-append 'enum- (named-type-name type))]
       ;; Pointer to named struct/union - check if opaque
       [(pointer-type? type)
        (let ([pointee (pointer-type-pointee type)])
@@ -170,14 +241,18 @@
            [(and (named-type? pointee)
                  (memq (named-type-kind pointee) '(struct union)))
             (if (is-type-defined? (named-type-name pointee) *all-declarations*)
-                ;; Defined - use normal pointer type
-                (list '* (ast->ffi-type pointee))
-                ;; Opaque - just void*
+                ;; Defined - use normal pointer type in struct context
+                (list '* (ast->ffi-type pointee 'struct))
+                ;; Opaque - void* for typedef
                 'void*)]
-           ;; Other pointer types
-           [else (ast->ffi-type type)]))]
+           ;; Other pointer types - use struct context for typedef definitions
+           [else (ast->ffi-type type 'struct)]))]
+      ;; Named struct/union type (non-pointer) - use the struct-/union- prefixed name
+      [(and (named-type? type)
+            (memq (named-type-kind type) '(struct union)))
+       (ast->ffi-type type 'struct)]
       ;; Non-pointer types
-      [else (ast->ffi-type type)]))
+      [else (ast->ffi-type type 'struct)]))
 
   ;; Generate typedef form
   (define (typedef->ffi-form decl)
@@ -196,7 +271,7 @@
             ;; Complete type with fields
             (let ([field-specs (map (lambda (field)
                                      (list (field-name field)
-                                           (ast->ffi-type (field-type field))))
+                                           (ast->ffi-type (field-type field) 'struct)))
                                    fields)])
               `(define-ftype ,ftype-name
                  (struct ,@field-specs)))))))
@@ -212,7 +287,7 @@
             ;; Complete type with fields
             (let ([field-specs (map (lambda (field)
                                      (list (field-name field)
-                                           (ast->ffi-type (field-type field))))
+                                           (ast->ffi-type (field-type field) 'struct)))
                                    fields)])
               `(define-ftype ,ftype-name
                  (union ,@field-specs)))))))
@@ -221,11 +296,15 @@
   (define (enum-decl->ffi-form decl)
     (let ([name (enum-decl-name decl)]
           [enumerators (enum-decl-enumerators decl)])
-      ;; Generate define forms for each enumerator
+      ;; If enum has a name, create enum type
       (cons 'begin
-            (map (lambda (e)
-                   `(define ,(enumerator-name e) ,(enumerator-value e)))
-                 enumerators))))
+            (append
+              (if name
+                  (list `(define-ftype ,(symbol-append 'enum- name) int))
+                  '())
+              (map (lambda (e)
+                     `(define ,(enumerator-name e) ,(enumerator-value e)))
+                   enumerators)))))
 
   ;; Convert a single declaration to FFI form
   ;; Returns #f if no form should be generated (e.g., typedefs)
@@ -248,6 +327,7 @@
   ;; Topological Sorting
 
   ;; Extract type names that a declaration depends on
+  ;; Returns list of declaration names (using prefixed names for structs/unions)
   (define (declaration-dependencies decl)
     (cond
       [(function-decl? decl)
@@ -279,7 +359,7 @@
 
       [else '()]))
 
-  ;; Extract type names from a type
+  ;; Extract type names from a type  ;; Returns declaration names (with struct-/union-/enum- prefix where applicable)
   (define (type-dependencies type)
     (cond
       [(basic-type? type) '()]
@@ -288,7 +368,11 @@
        (type-dependencies (pointer-type-pointee type))]
 
       [(named-type? type)
-       (list (named-type-name type))]
+       (case (named-type-kind type)
+         [(struct) (list (symbol-append 'struct- (named-type-name type)))]
+         [(union) (list (symbol-append 'union- (named-type-name type)))]
+         [(enum) (list (symbol-append 'enum- (named-type-name type)))]
+         [else (list (named-type-name type))])]
 
       [(qualified-type? type)
        (type-dependencies (qualified-type-type type))]
@@ -302,13 +386,20 @@
       [else '()]))
 
   ;; Get name defined by a declaration
+  ;; Use prefixed names for structs/unions/enums to avoid collision with typedefs
   (define (declaration-name decl)
     (cond
       [(function-decl? decl) (function-decl-name decl)]
       [(typedef? decl) (typedef-name decl)]
-      [(struct-decl? decl) (struct-decl-name decl)]
-      [(union-decl? decl) (union-decl-name decl)]
-      [(enum-decl? decl) (enum-decl-name decl)]
+      [(struct-decl? decl)
+       (let ([name (struct-decl-name decl)])
+         (and name (symbol-append 'struct- name)))]
+      [(union-decl? decl)
+       (let ([name (union-decl-name decl)])
+         (and name (symbol-append 'union- name)))]
+      [(enum-decl? decl)
+       (let ([name (enum-decl-name decl)])
+         (and name (symbol-append 'enum- name)))]
       [else #f]))
 
   ;; Topologically sort declarations
@@ -433,8 +524,11 @@
            [sorted-decls (topological-sort declarations)]
            [all-forms (map (lambda (decl) (declaration->ffi-form decl lib-name))
                           sorted-decls)]
-           ;; Filter out #f forms if any
-           [forms (filter (lambda (f) f) all-forms)])
+           ;; Filter out #f forms and comment forms
+           [forms (filter (lambda (f)
+                           (and f
+                                (not (and (pair? f) (eq? (car f) 'comment)))))
+                         all-forms)])
       ;; Wrap in a library form
       `(library (ffi ,(string->symbol lib-name))
          (export ,@(extract-exports (append opaque-forms forms)))

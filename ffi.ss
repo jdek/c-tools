@@ -1,6 +1,10 @@
-#!/usr/bin/env -S scheme --compile-imported-libraries --script
+#!/usr/bin/env -S scheme -q --script
+#!chezscheme
+
 ;; FFI Binding Generator for C/C++ Headers
 ;; Generates Chez Scheme FFI bindings from C or C++ header files
+(parameterize ([compile-file-message #f]
+               [compile-imported-libraries #t])
 
 (import (rnrs)
         (only (chezscheme) command-line-arguments getenv format pretty-print)
@@ -506,7 +510,7 @@
                     input-file
                     (if (eq? lang 'c++) "C++" "C")
                     lib-name
-                    target))
+                    target) (current-error-port))
 
     (case target
       [(chez)
@@ -535,6 +539,6 @@
            (generate-cffi-c-ffi input-file lib-name output-file))])
 
     (when output-file
-      (display (format "Generated FFI bindings: ~a\n" output-file)))))
+      (display (format "Generated FFI bindings: ~a\n" output-file) (current-error-port)))))
 
-(main)
+(main))
