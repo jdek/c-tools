@@ -34,6 +34,8 @@
           (c-tools ast c)
           (c-tools effects cpp core)
           (c-tools effects cpp macros)
+          (c-tools effects cpp includes)
+          (c-tools effects cpp conditionals)
           (c-tools effects registry)
           (c-tools utility))
 
@@ -44,12 +46,15 @@
   ;;   Attempts to parse C string, returns AST or #f on failure.
   (define (parse-c-string str)
     (guard (ex [else #f])
-      (with-effects '((cpp-macros ())
+      (with-effects '((cpp-include ())
+                      cpp-macros
                       cpp-conditional)
         (lambda ()
           (let* ([tokens (preprocess-string str)]
                  [decls (parse-declarations tokens)])
-            decls)))))
+            (if (null? decls)
+                #f
+                decls))))))
 
   ;; generate-ffi-from-string : string => s-expr | #f
   ;;   Attempts to parse C and generate FFI, returns FFI code or #f on failure.
