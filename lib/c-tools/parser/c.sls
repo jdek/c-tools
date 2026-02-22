@@ -398,9 +398,9 @@
           ;; Array suffix [size]
           [(is-punct? tok "[")
            (advance!)
-           (skip-to-bracket)
-           (expect-punct "]")
-           (parse-declarator-suffix name (make-array-type type #f))]
+           (let ([size (parse-array-size)])
+             (expect-punct "]")
+             (parse-declarator-suffix name (make-array-type type size)))]
 
           ;; Function suffix (params)
           [(is-punct? tok "(")
@@ -413,25 +413,42 @@
           [else
            (values name type)])))
 
-    ;; Skip to closing bracket (array size expressions)
-    ;; Consumes tokens inside [] but leaves the final ] for expect-punct
-    (define (skip-to-bracket)
-      (let loop ([depth 1])
+    ;; Parse array size expression
+    ;; Returns size as number if constant, #f otherwise
+    (define (parse-array-size)
+      (let ([tok (peek)])
+        (cond
+          ;; Empty brackets [] - unsized
+          [(is-punct? tok "]")
+           #f]
+          ;; Collect size expression tokens
+          [else
+           (let ([size-tokens (collect-array-size-tokens)])
+             (if (null? size-tokens)
+                 #f
+                 ;; Try to evaluate as constant expression
+                 (let ([result (eval-const-expr size-tokens)])
+                   (if (number? result)
+                       result
+                       #f))))])))
+
+    ;; Collect tokens for array size (until ] at depth 0)
+    (define (collect-array-size-tokens)
+      (let loop ([depth 0] [tokens '()])
         (let ([tok (peek)])
           (cond
-            [(not tok) (parse-error "Unexpected end of input")]
-            [(is-punct? tok "]")
-             (if (= depth 1)
-                 #f  ;; Found closing bracket, leave it for expect-punct
-                 (begin
-                   (advance!)  ;; Consume nested ]
-                   (loop (- depth 1))))]
+            [(not tok) (parse-error "Unexpected end in array size")]
+            [(and (= depth 0) (is-punct? tok "]"))
+             (reverse tokens)]  ;; Done, leave ] for expect-punct
             [(is-punct? tok "[")
-             (advance!)
-             (loop (+ depth 1))]
+             (let ([t (advance!)])
+               (loop (+ depth 1) (cons t tokens)))]
+            [(is-punct? tok "]")
+             (let ([t (advance!)])
+               (loop (- depth 1) (cons t tokens)))]
             [else
-             (advance!)  ;; Consume other tokens
-             (loop depth)]))))
+             (let ([t (advance!)])
+               (loop depth (cons t tokens)))]))))
 
     ;;=======================================================================
     ;; Declaration Parsing

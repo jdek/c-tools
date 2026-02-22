@@ -166,8 +166,15 @@
 
          ;; Array type
          [(array-type? type)
-          ;; Arrays decay to pointers in FFI
-          (list '* (ast->ffi-type (array-type-element type) context))]
+          (let ([element (array-type-element type)]
+                [size (array-type-size type)])
+            (cond
+              ;; In struct context with known size, use inline array
+              [(and (eq? context 'struct) size (number? size))
+               (list 'array size (ast->ffi-type element context))]
+              ;; Otherwise, arrays decay to pointers
+              [else
+               (list '* (ast->ffi-type element context))]))]
 
          ;; Function type (function pointers)
          [(function-type? type)
