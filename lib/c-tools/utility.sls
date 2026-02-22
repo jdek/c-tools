@@ -3,6 +3,17 @@
 
 (library (c-tools utility)
   (export string-join
+          string-split
+          string-split-char
+          string-trim
+          string-trim-left
+          string-trim-right
+          string-prefix?
+          string-suffix?
+          string-contains?
+          string-index
+          string-replace
+          string-search
           filter-map
           symbol-append
           extract-exports
@@ -24,7 +35,8 @@
           (rnrs lists)
           (rnrs io ports)
           (rnrs hashtables)
-          (rnrs records syntactic))
+          (rnrs records syntactic)
+          (rnrs unicode))
 
   ;;=======================================================================
   ;; String Utilities
@@ -38,6 +50,141 @@
           (if (null? strs)
               result
               (loop (cdr strs) (string-append result sep (car strs)))))))
+
+  ;; string-split-char : string char => list-of-string
+  ;;   Splits string on delimiter character.
+  (define (string-split-char str delim)
+    (let ([len (string-length str)])
+      (if (= len 0)
+          '("")
+          (let loop ([start 0] [i 0] [acc '()])
+            (cond
+              [(>= i len)
+               (reverse (cons (substring str start i) acc))]
+              [(char=? (string-ref str i) delim)
+               (loop (+ i 1) (+ i 1) (cons (substring str start i) acc))]
+              [else
+               (loop start (+ i 1) acc)])))))
+
+  ;; string-split : string string => list-of-string
+  ;;   Splits string by separator string.
+  (define (string-split str sep)
+    (if (string=? sep "")
+        (list str)
+        (let ([sep-len (string-length sep)])
+          (let loop ([start 0] [parts '()])
+            (let ([pos (string-search str sep start)])
+              (if pos
+                  (loop (+ pos sep-len)
+                        (cons (substring str start pos) parts))
+                  (reverse (cons (substring str start (string-length str)) parts))))))))
+
+  ;; string-trim-left : string => string
+  ;;   Trims leading whitespace.
+  (define (string-trim-left str)
+    (let ([len (string-length str)])
+      (let loop ([i 0])
+        (cond
+          [(>= i len) ""]
+          [(char-whitespace? (string-ref str i)) (loop (+ i 1))]
+          [else (substring str i len)]))))
+
+  ;; string-trim-right : string => string
+  ;;   Trims trailing whitespace.
+  (define (string-trim-right str)
+    (let ([len (string-length str)])
+      (let loop ([i (- len 1)])
+        (cond
+          [(< i 0) ""]
+          [(char-whitespace? (string-ref str i)) (loop (- i 1))]
+          [else (substring str 0 (+ i 1))]))))
+
+  ;; string-trim : string => string
+  ;;   Trims leading and trailing whitespace.
+  (define (string-trim str)
+    (let* ([len (string-length str)]
+           [start (let loop ([i 0])
+                    (cond
+                      [(>= i len) i]
+                      [(char-whitespace? (string-ref str i)) (loop (+ i 1))]
+                      [else i]))]
+           [end (let loop ([i (- len 1)])
+                  (cond
+                    [(< i 0) 0]
+                    [(char-whitespace? (string-ref str i)) (loop (- i 1))]
+                    [else (+ i 1)]))])
+      (if (> start end)
+          ""
+          (substring str start end))))
+
+  ;; string-prefix? : string string => boolean
+  ;;   Checks if string starts with prefix.
+  (define (string-prefix? str prefix)
+    (let ([slen (string-length str)]
+          [plen (string-length prefix)])
+      (and (>= slen plen)
+           (string=? (substring str 0 plen) prefix))))
+
+  ;; string-suffix? : string string => boolean
+  ;;   Checks if string ends with suffix.
+  (define (string-suffix? str suffix)
+    (let ([slen (string-length str)]
+          [suflen (string-length suffix)])
+      (and (>= slen suflen)
+           (string=? (substring str (- slen suflen) slen) suffix))))
+
+  ;; string-index : string char => fixnum | #f
+  ;;   Finds first occurrence of character in string.
+  (define (string-index str ch)
+    (let loop ([i 0])
+      (cond
+        [(>= i (string-length str)) #f]
+        [(char=? (string-ref str i) ch) i]
+        [else (loop (+ i 1))])))
+
+  ;; string-contains? : string string => boolean
+  ;;   Checks if string contains substring.
+  (define (string-contains? str substr)
+    (and (string-search str substr 0) #t))
+
+  ;; string-search : string string fixnum => fixnum | #f
+  ;;   Finds position of needle in haystack starting at start.
+  (define (string-search haystack needle start)
+    (define (string-prefix-at? str prefix pos)
+      (let ([prefix-len (string-length prefix)])
+        (and (<= (+ pos prefix-len) (string-length str))
+             (let loop ([i 0])
+               (if (>= i prefix-len)
+                   #t
+                   (and (char=? (string-ref str (+ pos i))
+                               (string-ref prefix i))
+                        (loop (+ i 1))))))))
+    (let ([needle-len (string-length needle)]
+          [hay-len (string-length haystack)])
+      (let loop ([pos start])
+        (if (> (+ pos needle-len) hay-len)
+            #f
+            (if (string-prefix-at? haystack needle pos)
+                pos
+                (loop (+ pos 1)))))))
+
+  ;; string-replace : string string string => string
+  ;;   Replaces all occurrences of 'from' substring with 'to' substring.
+  (define (string-replace str from to)
+    (let ([from-len (string-length from)]
+          [result '()])
+      (let loop ([i 0] [start 0])
+        (cond
+          [(>= i (string-length str))
+           (if (= start i)
+               (apply string-append (reverse result))
+               (apply string-append (reverse (cons (substring str start i) result))))]
+          [(and (<= (+ i from-len) (string-length str))
+                (string=? (substring str i (+ i from-len)) from))
+           (set! result (cons to (cons (substring str start i) result)))
+           (loop (+ i from-len) (+ i from-len))]
+          [else
+           (loop (+ i 1) start)]))))
 
   ;;=======================================================================
   ;; Symbol Utilities
