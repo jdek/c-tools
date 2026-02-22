@@ -50,6 +50,8 @@
       [(unsigned-long-long) 'unsigned-long-long]
       [(float) 'float]
       [(double) 'double]
+      ;; Boolean types (from stdbool.h)
+      [(bool _Bool) 'boolean]
       ;; stdint.h types
       [(int8_t) 'integer-8]
       [(uint8_t) 'unsigned-8]
@@ -127,9 +129,12 @@
              ;; Reference to enum type by name
              (symbol-append 'enum- (named-type-name type))]
             [(typedef)
-             ;; Check if it's a stdint type - map directly to Chez type
+             ;; Check if it's a stdint type or other known typedef - map directly to Chez type
              (let ([name (named-type-name type)])
                (case name
+                 ;; stdbool.h types
+                 [(bool) 'boolean]
+                 ;; stdint.h types
                  [(int8_t) 'integer-8]
                  [(uint8_t) 'unsigned-8]
                  [(int16_t) 'integer-16]

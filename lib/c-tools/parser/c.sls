@@ -274,19 +274,23 @@
 
     ;; Skip storage class specifiers (static, extern, register, auto, typedef)
     ;; and function specifiers (inline)
+    ;; Returns list of specifiers seen
     (define (skip-storage-class-specifiers)
-      (let loop ()
+      (let loop ([specs '()])
         (let ([tok (peek)])
-          (when (and (keyword-token? tok)
-                     (memq (token-value tok) '(static extern register auto typedef inline)))
-            (advance!)
-            (loop)))))
+          (if (and (keyword-token? tok)
+                   (memq (token-value tok) '(static extern register auto typedef inline)))
+              (begin
+                (advance!)
+                (loop (cons (token-value tok) specs)))
+              (reverse specs)))))
 
     ;; Parse type with qualifiers and pointers
+    ;; Returns (values base-type storage-specs)
     (define (parse-type)
-      (skip-storage-class-specifiers)
-      (let ([base (parse-type-specifier)])
-        (parse-type-modifiers base)))
+      (let ([specs (skip-storage-class-specifiers)])
+        (let ([base (parse-type-specifier)])
+          (values (parse-type-modifiers base) specs))))
 
     ;; Parse type modifiers (*, const, volatile)
     (define (parse-type-modifiers base)
@@ -488,7 +492,7 @@
     ;; Parse typedef
     (define (parse-typedef)
       (expect-keyword 'typedef)
-      (let ([type (parse-type)])
+      (let-values ([(type specs) (parse-type)])
         (let-values ([(name decl-type) (parse-declarator type)])
           (expect-punct ";")
           (make-typedef name decl-type))))
@@ -523,7 +527,7 @@
 
     ;; Parse single field (may have multiple comma-separated declarators)
     (define (parse-field)
-      (let ([base-type (parse-type)])
+      (let-values ([(base-type specs) (parse-type)])
         (let loop ([fields '()])
           (let-values ([(name field-type) (parse-declarator base-type)])
             (let ([new-fields (cons (make-field name field-type) fields)])
@@ -658,33 +662,44 @@
              (loop depth)]))))
 
     (define (parse-function-or-variable)
-      (let ([type (parse-type)])
+      (let-values ([(type specs) (parse-type)])
         (let-values ([(name decl-type) (parse-declarator type)])
-          ;; Check what follows the declarator
-          (cond
-            ;; Function body (inline functions)
-            [(is-punct? (peek) "{")
-             (skip-function-body)
-             (if (function-type? decl-type)
-                 (make-function-decl name
-                                     (function-type-return decl-type)
-                                     (function-type-params decl-type)
-                                     (function-type-variadic? decl-type))
-                 (make-field name decl-type))]
-            ;; Variable initializer
-            [(is-punct? (peek) "=")
-             (skip-initializer)
-             (expect-punct ";")
-             (make-field name decl-type)]
-            ;; Just a declaration
-            [else
-             (expect-punct ";")
-             (if (function-type? decl-type)
-                 (make-function-decl name
-                                     (function-type-return decl-type)
-                                     (function-type-params decl-type)
-                                     (function-type-variadic? decl-type))
-                 (make-field name decl-type))]))))
+          (let ([is-static? (memq 'static specs)]
+                [is-inline? (memq 'inline specs)])
+            ;; Check what follows the declarator
+            (cond
+              ;; Function body (inline/static functions)
+              [(is-punct? (peek) "{")
+               (skip-function-body)
+               ;; Skip static functions and inline functions with bodies (not in library)
+               (if (or is-static? is-inline?)
+                   #f  ;; Skip this declaration
+                   (if (function-type? decl-type)
+                       (make-function-decl name
+                                           (function-type-return decl-type)
+                                           (function-type-params decl-type)
+                                           (function-type-variadic? decl-type))
+                       (make-field name decl-type)))]
+              ;; Variable initializer
+              [(is-punct? (peek) "=")
+               (skip-initializer)
+               (expect-punct ";")
+               ;; Skip static variables (not exported)
+               (if is-static?
+                   #f
+                   (make-field name decl-type))]
+              ;; Just a declaration
+              [else
+               (expect-punct ";")
+               ;; Skip static declarations
+               (if is-static?
+                   #f
+                   (if (function-type? decl-type)
+                       (make-function-decl name
+                                           (function-type-return decl-type)
+                                           (function-type-params decl-type)
+                                           (function-type-variadic? decl-type))
+                       (make-field name decl-type)))])))))
 
     ;;=======================================================================
     ;; Parameter Parsing
@@ -717,7 +732,7 @@
 
     ;; Parse single parameter
     (define (parse-parameter)
-      (let ([type (parse-type)])
+      (let-values ([(type specs) (parse-type)])
         (let-values ([(name param-type) (parse-declarator type)])
           (make-param name param-type))))
 
