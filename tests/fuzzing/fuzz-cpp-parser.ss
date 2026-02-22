@@ -8,15 +8,7 @@
         (c-tools testing fuzzing mutation)
         (c-tools testing fuzzing harness)
         (c-tools testing fuzzing corpus)
-        (c-tools lexer cpp)
-        (c-tools parser cpp)
-        (c-tools preprocess cpp)
-        (c-tools codegen chez cpp-ffi)
-        (c-tools effects cpp core)
-        (c-tools effects cpp-lang class)
-        (c-tools effects cpp-lang namespace)
-        (c-tools effects cpp-lang templates)
-        (c-tools effects registry))
+        (c-tools testing properties))
 
 ;;-----------------------------------------------------------------------
 ;; C++-Specific Mutations
@@ -120,16 +112,8 @@
 ;;   Wraps the C++ parser for fuzzing (returns #t if no crash).
 (define (parse-cpp-wrapper input)
   (guard (ex [else #f])
-    (with-effects '((cpp-include ())
-                    cpp-macros
-                    cpp-conditional
-                    (cpp-namespaces ())
-                    (cpp-classes ())
-                    (cpp-templates ()))
-      (lambda ()
-        (let* ([tokens (preprocess-cpp-string input "<fuzz>")]
-               [result (parse-cpp-declarations tokens)])
-          #t)))))  ;; If we get here, no crash
+    (let ([result (parse-cpp-string input)])
+      #t)))  ;; If we get here, no crash (result can be #f for parse failure)
 
 ;;-----------------------------------------------------------------------
 ;; Campaign Configurations

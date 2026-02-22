@@ -363,23 +363,33 @@
       (advance!)  ;; consume (
       (let ([tok (peek)])
         (cond
-          ;; Function pointer: (*name)
+          ;; Function pointer or pointer to array: (*name)
           [(is-punct? tok "*")
            (advance!)
            (if (is-identifier? (peek))
                (let ([name (token-value (advance!))])
                  (expect-punct ")")
-                 ;; Now check for function suffix
-                 (if (is-punct? (peek) "(")
-                     ;; Function pointer
-                     (begin
-                       (advance!)
-                       (let-values ([(params variadic?) (parse-parameter-list)])
-                         (expect-punct ")")
-                         (let ([fn-type (make-function-type outer-type params variadic?)])
-                           (values name (make-pointer-type fn-type)))))
-                     ;; Just pointer
-                     (values name (make-pointer-type outer-type))))
+                 ;; Now check for function or array suffix
+                 (cond
+                   ;; Function pointer: (*name)(params)
+                   [(is-punct? (peek) "(")
+                    (advance!)
+                    (let-values ([(params variadic?) (parse-parameter-list)])
+                      (expect-punct ")")
+                      (let ([fn-type (make-function-type outer-type params variadic?)])
+                        (values name (make-pointer-type fn-type))))]
+
+                   ;; Pointer to array: (*name)[size]
+                   [(is-punct? (peek) "[")
+                    (advance!)
+                    (let ([size (parse-array-size)])
+                      (expect-punct "]")
+                      (let ([array-type (make-array-type outer-type size)])
+                        (values name (make-pointer-type array-type))))]
+
+                   ;; Just pointer: (*name)
+                   [else
+                    (values name (make-pointer-type outer-type))]))
                (parse-error "Expected identifier after * in parenthesized declarator"))]
 
           ;; Just grouping: (name)
