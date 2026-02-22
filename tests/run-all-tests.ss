@@ -27,7 +27,9 @@
                (list "./tests/properties/test-type-mapping.ss" "Type Mapping")
                (list "./tests/properties/test-parser-random.ss" "Random Parser Tests")
                (list "./tests/fuzzing/fuzz-parser.ss 1000" "C Parser Fuzzing (1000 tests)")
-               (list "./tests/fuzzing/fuzz-cpp-parser.ss 1000" "C++ Parser Fuzzing (1000 tests)"))]
+               (list "./tests/fuzzing/fuzz-cpp-parser.ss 1000" "C++ Parser Fuzzing (1000 tests)")
+               (list "./tests/fuzzing/fuzz-generative-c.ss 500" "C Generative Fuzzing (500 tests)")
+               (list "./tests/fuzzing/fuzz-generative-cpp.ss 500" "C++ Generative Fuzzing (500 tests)"))]
       [passed 0]
       [failed 0])
 

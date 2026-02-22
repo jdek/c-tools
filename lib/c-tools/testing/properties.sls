@@ -19,6 +19,7 @@
 
     ;; Helpers
     parse-c-string
+    parse-cpp-string
     generate-ffi-from-string)
 
   (import (rnrs base)
@@ -27,16 +28,22 @@
           (rnrs exceptions)
           (rnrs io ports)
           (rnrs io simple)
-          (c-tools lexer c)
-          (c-tools preprocess c)
-          (c-tools parser c)
-          (c-tools codegen chez ffi)
           (c-tools ast c)
-          (c-tools effects cpp core)
-          (c-tools effects cpp macros)
-          (c-tools effects cpp includes)
+          (c-tools codegen chez ffi)
           (c-tools effects cpp conditionals)
+          (c-tools effects cpp core)
+          (c-tools effects cpp includes)
+          (c-tools effects cpp macros)
+          (c-tools effects cpp symbols)
+          (c-tools effects cpp-lang class)
+          (c-tools effects cpp-lang namespace)
+          (c-tools effects cpp-lang templates)
+          (c-tools effects files)
           (c-tools effects registry)
+          (c-tools lexer c)
+          (c-tools parser c)
+          (c-tools parser cpp)
+          (c-tools preprocess c)
           (c-tools utility))
 
   ;;=======================================================================
@@ -46,15 +53,46 @@
   ;;   Attempts to parse C string, returns AST or #f on failure.
   (define (parse-c-string str)
     (guard (ex [else #f])
-      (with-effects '((cpp-include ())
-                      cpp-macros
-                      cpp-conditional)
+      ;; Explicitly register effect handlers. Auto-registration at module
+      ;; load time is not reliable in all contexts.
+      (register-cpp-include!)
+      (register-cpp-macros!)
+      (register-cpp-symbols!)
+      (register-cpp-conditional!)
+      (with-file-system #f "."
         (lambda ()
-          (let* ([tokens (preprocess-string str)]
-                 [decls (parse-declarations tokens)])
-            (if (null? decls)
-                #f
-                decls))))))
+          (with-effects '((cpp-include ())
+                          cpp-symbols
+                          cpp-macros
+                          cpp-conditional)
+            (lambda ()
+              (let* ([tokens (preprocess-string str "<test>")]
+                     [decls (parse-declarations tokens)])
+                (if (null? decls)
+                    #f
+                    decls))))))))
+
+  ;; parse-cpp-string : string => ast | #f
+  ;;   Attempts to parse C++ string, returns AST or #f on failure.
+  (define (parse-cpp-string str)
+    (guard (ex [else #f])
+      ;; Explicitly register effect handlers
+      (register-cpp-include!)
+      (register-cpp-macros!)
+      (register-cpp-symbols!)
+      (register-cpp-conditional!)
+      (with-file-system #f "."
+        (lambda ()
+          (with-effects '((cpp-include ())
+                          cpp-symbols
+                          cpp-macros
+                          cpp-conditional)
+            (lambda ()
+              (let* ([tokens (preprocess-string str "<test>")]
+                     [decls (parse-cpp-declarations tokens)])
+                (if (null? decls)
+                    #f
+                    decls))))))))
 
   ;; generate-ffi-from-string : string => s-expr | #f
   ;;   Attempts to parse C and generate FFI, returns FFI code or #f on failure.
