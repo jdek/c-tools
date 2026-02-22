@@ -26,7 +26,7 @@
                (list "./tests/properties/test-parser-properties.ss" "Parser Properties")
                (list "./tests/properties/test-type-mapping.ss" "Type Mapping")
                (list "./tests/properties/test-parser-random.ss" "Random Parser Tests")
-               (list "./tests/fuzzing/fuzz-all.ss 100" "Comprehensive Fuzzing (39 campaigns)"))]
+               (list "./tests/fuzzing/fuzz-all.ss 100" "Comprehensive Fuzzing (59 campaigns)"))]
       [passed 0]
       [failed 0])
 

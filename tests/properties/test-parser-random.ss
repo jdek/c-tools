@@ -80,16 +80,16 @@
 ;; Run Tests
 ;;-----------------------------------------------------------------------
 
-(printf "Running randomized parser property tests...\\n\\n")
+(printf "Running randomized parser property tests...\n\n")
 
 (let ([cfg (make-config 100)])  ;; 100 random tests
 
-  (display "Checking: Parser deterministic on random simple declarations\\n")
+  (display "Checking: Parser deterministic on random simple declarations\n")
   (let ([result (check-property prop-random-deterministic
                                gen-simple-c-declaration
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -98,12 +98,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: FFI generation doesn't crash on random declarations\\n")
+  (display "Checking: FFI generation doesn't crash on random declarations\n")
   (let ([result (check-property prop-random-ffi-no-crash
                                gen-simple-c-declaration
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -112,12 +112,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Parser deterministic on random typedefs\\n")
+  (display "Checking: Parser deterministic on random typedefs\n")
   (let ([result (check-property prop-random-deterministic
                                gen-typedef-declaration
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -126,12 +126,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: FFI generation doesn't crash on random typedefs\\n")
+  (display "Checking: FFI generation doesn't crash on random typedefs\n")
   (let ([result (check-property prop-random-ffi-no-crash
                                gen-typedef-declaration
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -140,12 +140,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Parser deterministic on random enums\\n")
+  (display "Checking: Parser deterministic on random enums\n")
   (let ([result (check-property prop-random-deterministic
                                gen-enum-declaration
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -154,12 +154,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: FFI generation doesn't crash on random enums\\n")
+  (display "Checking: FFI generation doesn't crash on random enums\n")
   (let ([result (check-property prop-random-ffi-no-crash
                                gen-enum-declaration
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -168,4 +168,4 @@
           (display (test-result-counter-example result))
           (newline)))))
 
-(printf "\\nAll randomized parser tests completed!\\n")
+(printf "\nAll randomized parser tests completed!\n")

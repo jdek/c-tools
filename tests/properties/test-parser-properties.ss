@@ -66,15 +66,15 @@
 ;; Run Tests
 ;;-----------------------------------------------------------------------
 
-(printf "Running C parser property tests...\\n\\n")
+(printf "Running C parser property tests...\n\n")
 
 (let ([cfg (make-config 50)])
-  (display "Checking: C identifiers do not start with digits\\n")
+  (display "Checking: C identifiers do not start with digits\n")
   (let ([result (check-property prop-identifier-no-leading-digit
                                gen-c-identifier
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -83,23 +83,23 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Basic types are non-empty\\n")
+  (display "Checking: Basic types are non-empty\n")
   (let ([result (check-property prop-basic-type-non-empty
                                gen-basic-type
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
           (newline))))
 
-  (display "Checking: Pointer types end with *\\n")
+  (display "Checking: Pointer types end with *\n")
   (let ([result (check-property prop-pointer-type-has-star
                                (gen-pointer-type gen-basic-type)
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -108,12 +108,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Array types contain brackets\\n")
+  (display "Checking: Array types contain brackets\n")
   (let ([result (check-property prop-array-type-has-brackets
                                (gen-array-type gen-basic-type)
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -122,12 +122,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: String literals are quoted\\n")
+  (display "Checking: String literals are quoted\n")
   (let ([result (check-property prop-string-literal-quoted
                                gen-string-literal
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -136,12 +136,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Hex literals start with 0x\\n")
+  (display "Checking: Hex literals start with 0x\n")
   (let ([result (check-property prop-hex-literal-prefix
                                gen-hex-literal
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -150,12 +150,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Macro names are uppercase\\n")
+  (display "Checking: Macro names are uppercase\n")
   (let ([result (check-property prop-macro-name-uppercase
                                gen-macro-name
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -164,12 +164,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Function signatures contain parentheses\\n")
+  (display "Checking: Function signatures contain parentheses\n")
   (let ([result (check-property prop-function-signature-has-parens
                                gen-function-signature
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -178,12 +178,12 @@
           (display (test-result-counter-example result))
           (newline))))
 
-  (display "Checking: Simple declarations have spaces\\n")
+  (display "Checking: Simple declarations have spaces\n")
   (let ([result (check-property prop-simple-declaration-has-space
                                gen-simple-declaration
                                cfg)])
     (if (test-result-pass? result)
-        (display "  PASS\\n")
+        (display "  PASS\n")
         (begin
           (display "  FAIL: ")
           (display (test-result-reason result))
@@ -192,4 +192,4 @@
           (display (test-result-counter-example result))
           (newline)))))
 
-(printf "\\nAll parser property tests completed!\\n")
+(printf "\nAll parser property tests completed!\n")

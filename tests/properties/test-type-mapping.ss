@@ -43,13 +43,13 @@
 ;; Run Tests
 ;;-----------------------------------------------------------------------
 
-(printf "Running C type mapping property tests...\\n\\n")
+(printf "Running C type mapping property tests...\n\n")
 
 (define (run-test name code property)
-  (printf "Testing: ~a\\n" name)
+  (printf "Testing: ~a\n" name)
   (if (property code)
-      (printf "  PASS\\n")
-      (printf "  FAIL\\n")))
+      (printf "  PASS\n")
+      (printf "  FAIL\n")))
 
 (run-test "bool type maps to boolean (variable)"
           test-bool-type
@@ -83,10 +83,10 @@
           test-static-function
           prop-static-functions-excluded)
 
-(printf "\\n")
+(printf "\n")
 
 ;; Parser robustness tests
-(printf "Parser robustness tests...\\n")
+(printf "Parser robustness tests...\n")
 
 (run-test "parser deterministic on valid input"
           test-array-in-struct
@@ -104,4 +104,4 @@
           "not valid C at all!!!"
           prop-ffi-no-crash)
 
-(printf "\\nAll type mapping tests completed!\\n")
+(printf "\nAll type mapping tests completed!\n")

@@ -4,3 +4,4 @@
 *.so
 *.wo
 *.wpo
+/tests/fuzzing/ffi-artifacts/*
