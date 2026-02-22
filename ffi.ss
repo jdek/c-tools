@@ -42,8 +42,10 @@
   '((__STDC__ . (1))
     (__STDC_VERSION__ . (201112))  ;; C11
     ;; Common compiler attributes that expand to empty
-    (__attribute__)
-    (__declspec)
+    ;; Function-like macros: (name (params...) body)
+    (__attribute__ (__attr_param__) ())
+    (__declspec (__decl_param__) ())
+    ;; Object-like macros that expand to empty
     (__cdecl)
     (__stdcall)
     (__fastcall)

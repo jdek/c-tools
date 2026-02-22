@@ -241,11 +241,22 @@
       (when (and (pair? predefs) (list? (car predefs)))
         (for-each
           (lambda (predef)
-            (let ([name (car predef)]
-                  [body (cdr predef)])
-              ;; body can be a list of tokens or #f for empty expansion
-              (let ([tokens (if (list? body) body '())])
-                (hashtable-set! macros name (make-macro-def name #f tokens)))))
+            (cond
+              ;; Function-like macro: (name (params...) body)
+              [(and (pair? (cdr predef))
+                    (list? (cadr predef)))
+               (let ([name (car predef)]
+                     [params (cadr predef)]
+                     [body (if (pair? (cddr predef)) (caddr predef) '())])
+                 (let ([tokens (if (list? body) body '())])
+                   (hashtable-set! macros name (make-macro-def name params tokens))))]
+              ;; Object-like macro: (name . body) or (name)
+              [else
+               (let ([name (car predef)]
+                     [body (cdr predef)])
+                 ;; body can be a list of tokens or #f for empty expansion
+                 (let ([tokens (if (list? body) body '())])
+                   (hashtable-set! macros name (make-macro-def name #f tokens))))]))
           (car predefs)))
 
       ;; Innermost: cpp-symbol (query if defined)
@@ -328,10 +339,10 @@
   (define (register-cpp-macros!)
     (register-effect! 'cpp-macros
       (lambda (spec thunk)
-        ;; spec can be 'cpp-macros or (cpp-macros . predefs)
+        ;; spec can be 'cpp-macros or (cpp-macros predefs)
         ;; where predefs is a list of (name . body) pairs
         (if (pair? spec)
-            (with-cpp-macros thunk (cdr spec))
+            (with-cpp-macros thunk (cadr spec))
             (with-cpp-macros thunk)))))
 
   ;; Auto-register on load

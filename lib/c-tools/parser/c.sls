@@ -273,11 +273,12 @@
          (parse-error "Expected enum name or {")]))
 
     ;; Skip storage class specifiers (static, extern, register, auto, typedef)
+    ;; and function specifiers (inline)
     (define (skip-storage-class-specifiers)
       (let loop ()
         (let ([tok (peek)])
           (when (and (keyword-token? tok)
-                     (memq (token-value tok) '(static extern register auto typedef)))
+                     (memq (token-value tok) '(static extern register auto typedef inline)))
             (advance!)
             (loop)))))
 
@@ -637,19 +638,53 @@
              (advance!)
              (loop depth)]))))
 
+    ;; Skip function body (for inline functions)
+    (define (skip-function-body)
+      (expect-punct "{")
+      (let loop ([depth 1])
+        (let ([tok (peek)])
+          (cond
+            [(not tok) (parse-error "Unexpected end of input in function body")]
+            [(is-punct? tok "{")
+             (advance!)
+             (loop (+ depth 1))]
+            [(is-punct? tok "}")
+             (advance!)
+             (if (= depth 1)
+                 #f  ;; Done
+                 (loop (- depth 1)))]
+            [else
+             (advance!)
+             (loop depth)]))))
+
     (define (parse-function-or-variable)
       (let ([type (parse-type)])
         (let-values ([(name decl-type) (parse-declarator type)])
-          ;; Skip initializer if present
-          (when (is-punct? (peek) "=")
-            (skip-initializer))
-          (expect-punct ";")
-          (if (function-type? decl-type)
-              (make-function-decl name
-                                  (function-type-return decl-type)
-                                  (function-type-params decl-type)
-                                  (function-type-variadic? decl-type))
-              (make-field name decl-type)))))
+          ;; Check what follows the declarator
+          (cond
+            ;; Function body (inline functions)
+            [(is-punct? (peek) "{")
+             (skip-function-body)
+             (if (function-type? decl-type)
+                 (make-function-decl name
+                                     (function-type-return decl-type)
+                                     (function-type-params decl-type)
+                                     (function-type-variadic? decl-type))
+                 (make-field name decl-type))]
+            ;; Variable initializer
+            [(is-punct? (peek) "=")
+             (skip-initializer)
+             (expect-punct ";")
+             (make-field name decl-type)]
+            ;; Just a declaration
+            [else
+             (expect-punct ";")
+             (if (function-type? decl-type)
+                 (make-function-decl name
+                                     (function-type-return decl-type)
+                                     (function-type-params decl-type)
+                                     (function-type-variadic? decl-type))
+                 (make-field name decl-type))]))))
 
     ;;=======================================================================
     ;; Parameter Parsing
